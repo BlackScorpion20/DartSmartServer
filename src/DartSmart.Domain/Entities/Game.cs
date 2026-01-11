@@ -96,6 +96,12 @@ public class Game : Entity<GameId>, IAggregateRoot
         return _players[CurrentPlayerIndex];
     }
 
+    public int GetPlayerScore(PlayerId playerId)
+    {
+        var player = _players.FirstOrDefault(p => p.PlayerId == playerId);
+        return player?.CurrentScore ?? 0;
+    }
+
     public DartThrow RegisterThrow(PlayerId playerId, int segment, int multiplier, int dartNumber)
     {
         if (Status != GameStatus.InProgress)

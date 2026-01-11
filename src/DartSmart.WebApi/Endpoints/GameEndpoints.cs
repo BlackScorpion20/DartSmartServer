@@ -113,5 +113,18 @@ public static class GameEndpoints
         .WithName("RegisterThrow")
         .Produces<DartThrowDto>(200)
         .Produces(400);
+
+        group.MapPost("/bots", async (CreateBotCommand request, IMediator mediator) =>
+        {
+            var result = await mediator.Send(request);
+            return result.Match(
+                success => Results.Ok(success),
+                error => Results.BadRequest(new { error })
+            );
+        })
+        .RequireAuthorization()
+        .WithName("CreateBot")
+        .Produces<PlayerDto>(200)
+        .Produces(400);
     }
 }

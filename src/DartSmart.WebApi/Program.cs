@@ -4,6 +4,7 @@ using DartSmart.Infrastructure;
 using DartSmart.WebApi.Endpoints;
 using DartSmart.WebApi.Hubs;
 using DartSmart.WebApi.Middleware;
+using DartSmart.Application.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
@@ -72,6 +73,10 @@ try
 
     // SignalR
     builder.Services.AddSignalR();
+
+    // Background Services
+    builder.Services.AddHostedService<BotHostedService>();
+    builder.Services.AddSingleton<BotHostedService>(); // Allow direct injection for queuing
 
     // CORS
     builder.Services.AddCors(options =>

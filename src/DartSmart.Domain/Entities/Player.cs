@@ -13,6 +13,8 @@ public class Player : Entity<PlayerId>, IAggregateRoot
     public string PasswordHash { get; private set; } = string.Empty;
     public DateTime CreatedAt { get; private set; }
     public PlayerStatistics Statistics { get; private set; } = PlayerStatistics.Empty;
+    public bool IsBot { get; private init; }
+    public int? BotSkillLevel { get; private init; }
 
     private Player() { } // EF Core constructor
 
@@ -34,7 +36,26 @@ public class Player : Entity<PlayerId>, IAggregateRoot
             Email = email.ToLowerInvariant().Trim(),
             PasswordHash = passwordHash,
             CreatedAt = DateTime.UtcNow,
-            Statistics = PlayerStatistics.Empty
+            Statistics = PlayerStatistics.Empty,
+            IsBot = false
+        };
+    }
+
+    public static Player CreateBot(string username, int skillLevel)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            throw new ArgumentException("Username cannot be empty", nameof(username));
+
+        return new Player
+        {
+            Id = PlayerId.New(),
+            Username = username.Trim(),
+            Email = $"{username.ToLowerInvariant().Trim()}@bot.local",
+            PasswordHash = "",
+            CreatedAt = DateTime.UtcNow,
+            Statistics = PlayerStatistics.Empty,
+            IsBot = true,
+            BotSkillLevel = Math.Clamp(skillLevel, 1, 100)
         };
     }
 
