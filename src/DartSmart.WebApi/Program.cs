@@ -15,6 +15,8 @@ DotEnv.Load(options: new DotEnvOptions(
 ));
 
 // Configure Serilog
+var seqUrl = Environment.GetEnvironmentVariable("SEQ_URL");
+
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
@@ -27,6 +29,7 @@ Log.Logger = new LoggerConfiguration()
         rollingInterval: RollingInterval.Day,
         retainedFileCountLimit: 30,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.Seq(seqUrl ?? "http://localhost:5341")
     .CreateLogger();
 
 try

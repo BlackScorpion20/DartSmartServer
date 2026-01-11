@@ -8,9 +8,12 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=dartsmart;Username=dartsmart;Password=dartsmart_dev
+      - SEQ_URL=http://seq:5341
     depends_on:
       postgres:
         condition: service_healthy
+      seq:
+        condition: service_started
     networks:
       - dartsmart-network
 
@@ -33,9 +36,23 @@ services:
     networks:
       - dartsmart-network
 
+  seq:
+    image: datalust/seq:latest
+    container_name: dartsmart-seq
+    ports:
+      - "5341:5341" # Ingestion API
+      - "8081:80" # Web UI
+    environment:
+      ACCEPT_EULA: "Y"
+    volumes:
+      - seq-data:/data
+    networks:
+      - dartsmart-network
+
 networks:
   dartsmart-network:
     driver: bridge
 
 volumes:
   postgres-data:
+  seq-data:
