@@ -44,6 +44,8 @@ services:
       - "8081:80" # Web UI
     environment:
       ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINUSERNAME: "admin"
+      SEQ_FIRSTRUN_ADMINPASSWORD: "SeqAdmin123!"
     volumes:
       - seq-data:/data
     networks:
