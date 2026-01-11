@@ -1,6 +1,8 @@
 # DartSmartServer API Reference
 
-**Base URL**: `http://localhost:8080`
+**Base URL**:
+- Local Dev (`dotnet run`): `http://localhost:5257`
+- Docker (`docker-compose`): `http://localhost:8080`
 
 ---
 
