@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=dartsmart;Username=dartsmart;Password=dartsmart_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dartsmart-network
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: dartsmart-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dartsmart
+      POSTGRES_PASSWORD: dartsmart_dev
+      POSTGRES_DB: dartsmart
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dartsmart -d dartsmart" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dartsmart-network
+
+networks:
+  dartsmart-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

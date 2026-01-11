@@ -1,0 +1,6 @@
+@DartSmart.WebApi_HostAddress = http://localhost:5257
+
+GET {{DartSmart.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
