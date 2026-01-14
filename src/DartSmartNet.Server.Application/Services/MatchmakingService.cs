@@ -1,11 +1,12 @@
 using DartSmartNet.Server.Domain.Enums;
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 
 namespace DartSmartNet.Server.Application.Services;
 
 public class MatchmakingService : IMatchmakingService
 {
-    private readonly IGameService _gameService;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     // In-memory queue for matchmaking
     // Key: GameType-StartingScore, Value: Queue of user IDs
@@ -14,9 +15,9 @@ public class MatchmakingService : IMatchmakingService
     // Track which queue each user is in
     private static readonly ConcurrentDictionary<Guid, string> _userQueues = new();
 
-    public MatchmakingService(IGameService gameService)
+    public MatchmakingService(IServiceScopeFactory scopeFactory)
     {
-        _gameService = gameService;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task<Guid?> JoinQueueAsync(
@@ -40,10 +41,13 @@ public class MatchmakingService : IMatchmakingService
         // Try to find a match from existing queue
         if (queue.TryDequeue(out var opponent))
         {
-            // Found a match! Create game
+            // Found a match! Create game using a new scope
+            using var scope = _scopeFactory.CreateScope();
+            var gameService = scope.ServiceProvider.GetRequiredService<IGameService>();
+
             var playerIds = new[] { userId, opponent.UserId };
 
-            var gameState = await _gameService.CreateGameAsync(
+            var gameState = await gameService.CreateGameAsync(
                 gameType,
                 startingScore,
                 playerIds,
