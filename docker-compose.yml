@@ -3,27 +3,42 @@ version: '3.8'
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: dartsmart-db
+    container_name: dartsmart_postgres
     environment:
-      POSTGRES_USER: dartsmart
-      POSTGRES_PASSWORD: dartsmart_dev_password
       POSTGRES_DB: dartsmart
+      POSTGRES_USER: dartsmart
+      POSTGRES_PASSWORD: DartSmart2024!Secure
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    networks:
-      - dartsmart-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dartsmart"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:alpine
+    container_name: dartsmart_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
 
 networks:
-  dartsmart-network:
-    driver: bridge
+  default:
+    name: dartsmart_network
