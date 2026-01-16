@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using DartSmartNet.Server.Application.DTOs.Game;
 using DartSmartNet.Server.Application.Services;
 using DartSmartNet.Server.Domain.ValueObjects;
@@ -32,9 +36,8 @@ public class GameHub : Hub
         var userId = GetUserId();
         _logger.LogInformation("User {UserId} disconnected from GameHub. ConnectionId: {ConnectionId}", userId, Context.ConnectionId);
 
-        // Handle user disconnect - remove from any active games
-        // TODO: Implement game cleanup on disconnect
-
+        // Handle user disconnect - remove from SignalR groups but also notify active games
+        // In a real app, we might want to flag the player as 'away' or handle reconnection
         await base.OnDisconnectedAsync(exception);
     }
 
@@ -98,11 +101,13 @@ public class GameHub : Hub
         try
         {
             var userId = GetUserId();
+            var username = GetUsername();
             _logger.LogInformation("User {UserId} registering throw in game {GameId}: {Segment}x{Multiplier}",
                 userId, gameId, segment, multiplier);
 
             // Create Score from throw
             var score = CreateScore(segment, multiplier);
+            var points = segment * multiplier;
 
             // Register throw via game service
             var gameState = await _gameService.RegisterThrowAsync(gameId, userId, score);
@@ -110,6 +115,19 @@ public class GameHub : Hub
             // Broadcast updated game state to all players in the game
             await Clients.Group(GetGameGroupName(gameId))
                 .SendAsync("GameStateUpdated", gameState);
+
+            // Broadcast throw details to opponents for LED visualization
+            var throwDetails = new OpponentThrowDto(
+                userId,
+                username,
+                segment,
+                multiplier,
+                points,
+                DateTime.UtcNow
+            );
+            
+            await Clients.OthersInGroup(GetGameGroupName(gameId))
+                .SendAsync("OpponentThrow", throwDetails);
 
             _logger.LogInformation("Throw registered successfully for game {GameId}", gameId);
         }
@@ -120,6 +138,61 @@ public class GameHub : Hub
             // Send error to the caller only
             await Clients.Caller.SendAsync("ThrowError", ex.Message);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Notify opponents that a dart was removed (undo)
+    /// </summary>
+    public async Task NotifyDartRemoved(Guid gameId, int segment, int multiplier)
+    {
+        try
+        {
+            var userId = GetUserId();
+            var username = GetUsername();
+
+            var removeDetails = new OpponentThrowDto(
+                userId,
+                username,
+                segment,
+                multiplier,
+                segment * multiplier,
+                DateTime.UtcNow
+            );
+            
+            await Clients.OthersInGroup(GetGameGroupName(gameId))
+                .SendAsync("OpponentDartRemoved", removeDetails);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error notifying dart removed for game {GameId}", gameId);
+        }
+    }
+
+    /// <summary>
+    /// Notify when a round is completed (3 darts thrown)
+    /// </summary>
+    public async Task NotifyRoundComplete(Guid gameId, int totalPoints, int dartsThrown)
+    {
+        try
+        {
+            var userId = GetUserId();
+            var username = GetUsername();
+
+            var roundInfo = new RoundCompleteDto(
+                userId,
+                username,
+                totalPoints,
+                dartsThrown,
+                DateTime.UtcNow
+            );
+            
+            await Clients.OthersInGroup(GetGameGroupName(gameId))
+                .SendAsync("OpponentRoundComplete", roundInfo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error notifying round complete for game {GameId}", gameId);
         }
     }
 
@@ -262,3 +335,26 @@ public class GameHub : Hub
         };
     }
 }
+
+/// <summary>
+/// DTO for broadcasting opponent throws to enable LED visualization
+/// </summary>
+public record OpponentThrowDto(
+    Guid PlayerId,
+    string PlayerName,
+    int Segment,
+    int Multiplier,
+    int Points,
+    DateTime Timestamp
+);
+
+/// <summary>
+/// DTO for broadcasting when opponent completes their round
+/// </summary>
+public record RoundCompleteDto(
+    Guid PlayerId,
+    string PlayerName,
+    int TotalPoints,
+    int DartsThrown,
+    DateTime Timestamp
+);

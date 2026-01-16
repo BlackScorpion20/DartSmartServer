@@ -20,6 +20,13 @@ public class ApplicationDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<TrainingSession> TrainingSessions => Set<TrainingSession>();
     public DbSet<TrainingThrow> TrainingThrows => Set<TrainingThrow>();
+    public DbSet<GameEventLog> GameEventLogs => Set<GameEventLog>();
+    public DbSet<GameProfile> GameProfiles => Set<GameProfile>();
+    
+    // Tournament entities
+    public DbSet<Tournament> Tournaments => Set<Tournament>();
+    public DbSet<TournamentParticipant> TournamentParticipants => Set<TournamentParticipant>();
+    public DbSet<TournamentMatch> TournamentMatches => Set<TournamentMatch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

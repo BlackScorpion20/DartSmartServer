@@ -46,6 +46,32 @@ public class StatisticsService : IStatisticsService
         return leaderboard;
     }
 
+    public async Task<IEnumerable<LeaderboardEntryDto>> GetRankedLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
+    {
+        var statsCollection = await _statsRepository.GetLeaderboardAsync(limit, cancellationToken);
+
+        var leaderboard = new List<LeaderboardEntryDto>();
+        var rank = 1;
+
+        foreach (var stats in statsCollection)
+        {
+            var user = await _userRepository.GetByIdAsync(stats.UserId, cancellationToken);
+            leaderboard.Add(new LeaderboardEntryDto(
+                rank++,
+                stats.UserId,
+                user?.Username ?? "Unknown",
+                stats.GamesPlayed,
+                stats.GamesWon,
+                stats.WinRate,
+                stats.ThreeDartAverage,
+                stats.HighestCheckout,
+                stats.Total180s
+            ));
+        }
+
+        return leaderboard;
+    }
+
     public async Task UpdateStatsAfterGameAsync(
         Guid userId,
         bool won,
@@ -55,19 +81,41 @@ public class StatisticsService : IStatisticsService
         int checkout,
         CancellationToken cancellationToken = default)
     {
+        await UpdateStatsAfterGameAsync(
+            userId, won, dartsThrown, pointsScored, roundScores, checkout,
+            0, 0, 0, 0, 1, won ? 1 : 0, cancellationToken);
+    }
+
+    public async Task UpdateStatsAfterGameAsync(
+        Guid userId,
+        bool won,
+        int dartsThrown,
+        int pointsScored,
+        IEnumerable<int> roundScores,
+        int checkout,
+        int doubleAttempts,
+        int doubleHits,
+        decimal sessionAverage,
+        decimal first9Average,
+        int legsPlayed,
+        int legsWon,
+        CancellationToken cancellationToken = default)
+    {
         var stats = await _statsRepository.GetByUserIdAsync(userId, cancellationToken);
 
         if (stats == null)
         {
             // Create new stats record for user
             stats = PlayerStats.CreateForUser(userId);
-            stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout);
+            stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout,
+                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon);
             await _statsRepository.AddAsync(stats, cancellationToken);
         }
         else
         {
             // Update existing stats
-            stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout);
+            stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout,
+                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon);
             await _statsRepository.UpdateAsync(stats, cancellationToken);
         }
     }
@@ -77,15 +125,45 @@ public class StatisticsService : IStatisticsService
         return new PlayerStatsDto(
             stats.UserId,
             username,
+            
+            // Basic Stats
             stats.GamesPlayed,
             stats.GamesWon,
             stats.GamesLost,
             stats.WinRate,
             stats.AveragePPD,
+            stats.ThreeDartAverage,
+            
+            // High Scores
             stats.HighestCheckout,
+            stats.HighestScore,
             stats.Total180s,
             stats.Total171s,
-            stats.Total140s
+            stats.Total140s,
+            stats.Total100Plus,
+            
+            // Checkout Statistics
+            stats.TotalCheckouts,
+            stats.CheckoutPercentage,
+            
+            // Session Averages
+            stats.BestSessionAverage,
+            stats.WorstSessionAverage,
+            stats.First9Average,
+            
+            // Streaks
+            stats.CurrentWinStreak,
+            stats.LongestWinStreak,
+            stats.CurrentLossStreak,
+            stats.LongestLossStreak,
+            
+            // Legs Statistics
+            stats.TotalLegsPlayed,
+            stats.TotalLegsWon,
+            stats.LegsWinRate,
+            
+            // Time-based
+            stats.LastGameAt
         );
     }
 }

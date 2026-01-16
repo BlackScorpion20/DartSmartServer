@@ -1,5 +1,6 @@
 using DartSmartNet.Server.Domain.Entities;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -57,6 +58,13 @@ public class GameSessionConfiguration : IEntityTypeConfiguration<GameSession>
         builder.Property(gs => gs.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
+
+        builder.OwnsOne(gs => gs.Options, options =>
+        {
+            options.Property(o => o.InMode).HasColumnName("option_in_mode").HasMaxLength(20).IsRequired();
+            options.Property(o => o.OutMode).HasColumnName("option_out_mode").HasMaxLength(20).IsRequired();
+            options.Property(o => o.CricketMode).HasColumnName("option_cricket_mode").HasMaxLength(20).IsRequired();
+        });
 
         // Relationships
         builder.HasOne(gs => gs.Winner)

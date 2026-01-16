@@ -88,3 +88,7 @@ artifacts/
 tmpclaude-*
 TestResults/
 *.log
+*errors_*.txt
+gemini.md
+server_*.txt
+skills.md

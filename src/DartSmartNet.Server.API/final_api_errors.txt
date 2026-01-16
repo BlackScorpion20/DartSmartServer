@@ -1,0 +1,10 @@
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(112,44): error CS0246: The type or namespace name 'StatisticsExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(113,44): error CS0246: The type or namespace name 'EventLoggingExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(114,44): error CS0246: The type or namespace name 'WebSocketBroadcastExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(162,12): error CS0246: The type or namespace name 'BroadcastHub' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+
+Build FAILED.
+    0 Warning(s)
+    4 Error(s)
+
+Time Elapsed 00:00:02.04

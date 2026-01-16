@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DartSmartNet.Server.Application.DTOs.Game;
 using DartSmartNet.Server.Application.Services;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Domain.ValueObjects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -46,6 +52,7 @@ public class GameController : ControllerBase
                 request.StartingScore,
                 playerIds.ToArray(),
                 request.IsOnline,
+                request.Options,
                 cancellationToken);
 
             _logger.LogInformation("Game {GameId} created successfully", gameState.GameId);
@@ -204,5 +211,6 @@ public record CreateGameRequest(
     GameType GameType,
     int? StartingScore,
     Guid[]? PlayerIds,
-    bool IsOnline
+    bool IsOnline,
+    GameOptions? Options = null
 );

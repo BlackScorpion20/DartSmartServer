@@ -1,11 +1,14 @@
+using System;
+using System.Threading.Tasks;
 using DartSmartNet.Server.API.Hubs;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Application.Services;
 using DartSmartNet.Server.Infrastructure.AI;
+using DartSmartNet.Server.Infrastructure.Extensions;
 using DartSmartNet.Server.Infrastructure.Authentication;
 using DartSmartNet.Server.Infrastructure.Data;
 using DartSmartNet.Server.Infrastructure.Repositories;
-using DartSmartNet.Server.Infrastructure.Services;
+using InfraServices = DartSmartNet.Server.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -92,16 +95,32 @@ builder.Services.AddScoped<IStatsRepository, StatsRepository>();
 builder.Services.AddScoped<IBotRepository, BotRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITrainingRepository, TrainingRepository>();
+builder.Services.AddScoped<IGameProfileRepository, GameProfileRepository>();
+
+// Tournament Repositories
+builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
+builder.Services.AddScoped<ITournamentParticipantRepository, TournamentParticipantRepository>();
+builder.Services.AddScoped<ITournamentMatchRepository, TournamentMatchRepository>();
 
 // Services
-builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IAuthService, InfraServices.AuthService>();
 builder.Services.AddScoped<IGameService, GameService>();
 builder.Services.AddScoped<IStatisticsService, StatisticsService>();
 builder.Services.AddScoped<ITrainingService, TrainingService>();
+builder.Services.AddScoped<IGameProfileService, GameProfileService>();
+builder.Services.AddScoped<ITournamentService, TournamentService>();
 builder.Services.AddSingleton<IMatchmakingService, MatchmakingService>();
 builder.Services.AddScoped<IBotService, BotEngine>();
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+// Event Broadcasting System
+builder.Services.AddSingleton<IGameEventBroadcaster, InfraServices.GameEventBroadcaster>();
+
+// Game Extensions (Plugin Architecture)
+builder.Services.AddScoped<IGameExtension, StatisticsExtension>();
+builder.Services.AddScoped<IGameExtension, EventLoggingExtension>();
+builder.Services.AddScoped<IGameExtension, WebSocketBroadcastExtension>();
 
 // SignalR
 builder.Services.AddSignalR(options =>
@@ -147,10 +166,23 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// SignalR Hub
+// SignalR Hubs
 app.MapHub<GameHub>("/hubs/game");
+app.MapHub<BroadcastHub>("/hubs/broadcast"); // For external clients (LED, overlays, etc.)
 
 // Health Check Endpoint
 app.MapHealthChecks("/health");
+
+// Register extensions with broadcaster
+using (var scope = app.Services.CreateScope())
+{
+    var broadcaster = scope.ServiceProvider.GetRequiredService<IGameEventBroadcaster>();
+    var extensions = scope.ServiceProvider.GetServices<IGameExtension>();
+
+    foreach (var extension in extensions)
+    {
+        broadcaster.RegisterExtension(extension);
+    }
+}
 
 app.Run();

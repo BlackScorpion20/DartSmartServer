@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Domain.ValueObjects;
 
 namespace DartSmartNet.Server.Application.DTOs.Game;
 
@@ -13,7 +16,8 @@ public sealed record GameStateDto(
     bool IsOnline,
     bool IsBotGame,
     List<PlayerGameDto> Players,
-    int CurrentPlayerIndex
+    int CurrentPlayerIndex,
+    GameOptions? Options = null
 );
 
 public sealed record PlayerGameDto(
@@ -24,5 +28,6 @@ public sealed record PlayerGameDto(
     int DartsThrown,
     int PointsScored,
     decimal PPD,
-    bool IsWinner
+    bool IsWinner,
+    Dictionary<int, int>? CricketMarks = null
 );

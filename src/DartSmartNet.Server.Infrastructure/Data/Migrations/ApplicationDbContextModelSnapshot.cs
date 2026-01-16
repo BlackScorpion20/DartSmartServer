@@ -121,6 +121,57 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                     b.ToTable("dart_throws", (string)null);
                 });
 
+            modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameEventLog", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventData")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("event_data");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("event_type");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("game_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlayerUsername")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("player_username");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.HasKey("EventId");
+
+                    b.HasIndex("GameId")
+                        .HasDatabaseName("ix_game_event_logs_game_id");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("ix_game_event_logs_timestamp");
+
+                    b.HasIndex("GameId", "Timestamp")
+                        .HasDatabaseName("ix_game_event_logs_game_timestamp");
+
+                    b.ToTable("game_event_logs", (string)null);
+                });
+
             modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GamePlayer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -181,6 +232,80 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("game_players", (string)null);
+                });
+
+            modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameProfile", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("profile_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ExtensionSettings")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("extension_settings");
+
+                    b.Property<string>("GameType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("game_type");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("in_mode");
+
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_public");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("OutMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("out_mode");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<int>("StartingScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("starting_score");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ProfileId");
+
+                    b.HasIndex("IsPublic")
+                        .HasDatabaseName("ix_game_profiles_is_public");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_game_profiles_owner_id");
+
+                    b.ToTable("game_profiles", (string)null);
                 });
 
             modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameSession", b =>
@@ -534,6 +659,17 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameEventLog", b =>
+                {
+                    b.HasOne("DartSmartNet.Server.Domain.Entities.GameSession", "GameSession")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GameSession");
+                });
+
             modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GamePlayer", b =>
                 {
                     b.HasOne("DartSmartNet.Server.Domain.Entities.GameSession", "Game")
@@ -553,12 +689,57 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameProfile", b =>
+                {
+                    b.HasOne("DartSmartNet.Server.Domain.Entities.User", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Owner");
+                });
+
             modelBuilder.Entity("DartSmartNet.Server.Domain.Entities.GameSession", b =>
                 {
                     b.HasOne("DartSmartNet.Server.Domain.Entities.User", "Winner")
                         .WithMany()
                         .HasForeignKey("WinnerId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.OwnsOne("GameOptions", "Options", b1 =>
+                        {
+                            b1.Property<Guid>("GameSessionId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("CricketMode")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("option_cricket_mode");
+
+                            b1.Property<string>("InMode")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("option_in_mode");
+
+                            b1.Property<string>("OutMode")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("option_out_mode");
+
+                            b1.HasKey("GameSessionId");
+
+                            b1.ToTable("game_sessions");
+
+                            b1.WithOwner()
+                                .HasForeignKey("GameSessionId");
+                        });
+
+                    b.Navigation("Options")
+                        .IsRequired();
 
                     b.Navigation("Winner");
                 });

@@ -1,5 +1,6 @@
 using DartSmartNet.Server.Domain.Common;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Domain.ValueObjects;
 
 namespace DartSmartNet.Server.Domain.Entities;
 
@@ -13,6 +14,7 @@ public class GameSession : Entity
     public Guid? WinnerId { get; private set; }
     public bool IsOnline { get; private set; }
     public bool IsBotGame { get; private set; }
+    public GameOptions Options { get; private set; }
 
     // Navigation properties
     public User? Winner { get; private set; }
@@ -25,9 +27,10 @@ public class GameSession : Entity
         Throws = new List<DartThrow>();
         Status = GameStatus.WaitingForPlayers;
         StartedAt = DateTime.UtcNow;
+        Options = GameOptions.DefaultX01(); // Default to avoid nulls
     }
 
-    public static GameSession Create(GameType gameType, int? startingScore, bool isOnline, bool isBotGame)
+    public static GameSession Create(GameType gameType, int? startingScore, bool isOnline, bool isBotGame, GameOptions? options = null)
     {
         return new GameSession
         {
@@ -36,7 +39,8 @@ public class GameSession : Entity
             IsOnline = isOnline,
             IsBotGame = isBotGame,
             Status = GameStatus.WaitingForPlayers,
-            StartedAt = DateTime.UtcNow
+            StartedAt = DateTime.UtcNow,
+            Options = options ?? (gameType == GameType.Cricket ? GameOptions.DefaultCricket() : GameOptions.DefaultX01())
         };
     }
 

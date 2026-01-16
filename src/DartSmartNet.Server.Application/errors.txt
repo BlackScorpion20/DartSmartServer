@@ -1,0 +1,9 @@
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\Services\GameProfileService.cs(6,28): error CS0234: The type or namespace name 'Logging' does not exist in the namespace 'Microsoft.Extensions' (are you missing an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\DartSmartNet.Server.Application.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\Services\GameProfileService.cs(15,22): error CS0246: The type or namespace name 'ILogger<>' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\DartSmartNet.Server.Application.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\Services\GameProfileService.cs(20,9): error CS0246: The type or namespace name 'ILogger<>' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\DartSmartNet.Server.Application.csproj]
+
+Build FAILED.
+    1 Warning(s)
+    3 Error(s)
+
+Time Elapsed 00:00:01.40

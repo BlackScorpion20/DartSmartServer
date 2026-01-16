@@ -1,6 +1,12 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Domain.Entities;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Application.Services;
+using DartSmartNet.Server.Application.DTOs.Bot;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -120,6 +126,33 @@ public class BotController : ControllerBase
                 Status = StatusCodes.Status500InternalServerError,
                 Title = "An error occurred",
                 Detail = "An unexpected error occurred while retrieving bot"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Simulate a throw for a bot
+    /// </summary>
+    [HttpPost("simulate")]
+    [ProducesResponseType(typeof(Domain.ValueObjects.Score), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SimulateThrow(
+        [FromBody] SimulateThrowRequest request,
+        [FromServices] IBotService botService,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var score = await botService.SimulateThrowAsync(request.Difficulty, request.CurrentScore, cancellationToken);
+            return Ok(score);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error simulating throw for difficulty {Difficulty}", request.Difficulty);
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "An error occurred",
+                Detail = "An unexpected error occurred while simulating throw"
             });
         }
     }
