@@ -172,26 +172,58 @@ public class GameController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RegisterThrow(Guid gameId, [FromBody] RegisterGameThrowRequest request, CancellationToken cancellationToken)
     {
-        try
+        const int maxRetries = 3;
+        var attempt = 0;
+        
+        while (attempt < maxRetries)
         {
-            var userId = GetUserId();
-            _logger.LogInformation("User {UserId} registered throw in game {GameId}: {Segment} x{Multiplier}", 
-                userId, gameId, request.Score.Segment, request.Score.Multiplier);
-
-            var gameState = await _gameService.RegisterThrowAsync(gameId, userId, request.Score, request.RawData, cancellationToken);
-
-            return Ok(gameState);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error registering throw in game {GameId}", gameId);
-            return BadRequest(new ProblemDetails
+            try
             {
-                Status = StatusCodes.Status400BadRequest,
-                Title = "Failed to register throw",
-                Detail = ex.Message
-            });
+                attempt++;
+                var userId = GetUserId();
+                _logger.LogInformation("User {UserId} registered throw in game {GameId}: {Segment} x{Multiplier} (attempt {Attempt})", 
+                    userId, gameId, request.Score.Segment, request.Score.Multiplier, attempt);
+
+                var gameState = await _gameService.RegisterThrowAsync(gameId, userId, request.Score, request.RawData, cancellationToken);
+
+                return Ok(gameState);
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
+            {
+                _logger.LogWarning(ex, "Concurrency conflict registering throw in game {GameId}, attempt {Attempt}/{MaxRetries}", 
+                    gameId, attempt, maxRetries);
+                
+                if (attempt >= maxRetries)
+                {
+                    return StatusCode(StatusCodes.Status409Conflict, new ProblemDetails
+                    {
+                        Status = StatusCodes.Status409Conflict,
+                        Title = "Concurrency conflict",
+                        Detail = "Unable to register throw due to concurrent modifications. Please try again."
+                    });
+                }
+                
+                // Small delay before retry
+                await Task.Delay(50 * attempt, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error registering throw in game {GameId}", gameId);
+                return BadRequest(new ProblemDetails
+                {
+                    Status = StatusCodes.Status400BadRequest,
+                    Title = "Failed to register throw",
+                    Detail = ex.Message
+                });
+            }
         }
+        
+        return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "Unexpected error",
+            Detail = "Failed to register throw after multiple attempts"
+        });
     }
 
     /// <summary>
