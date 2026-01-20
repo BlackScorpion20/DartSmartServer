@@ -53,7 +53,12 @@ public class GameRepository : IGameRepository
 
     public async Task UpdateAsync(GameSession game, CancellationToken cancellationToken = default)
     {
-        _context.GameSessions.Update(game);
+        // Only call Update if the entity is not already being tracked
+        var entry = _context.Entry(game);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.GameSessions.Update(game);
+        }
         await _context.SaveChangesAsync(cancellationToken);
     }
 
