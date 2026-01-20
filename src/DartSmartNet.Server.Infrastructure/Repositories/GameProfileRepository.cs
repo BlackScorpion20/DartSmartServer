@@ -24,6 +24,7 @@ public class GameProfileRepository : IGameProfileRepository
     public async Task<IEnumerable<GameProfile>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _context.GameProfiles
+            .Include(p => p.Owner)
             .Where(p => p.OwnerId == userId)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);

@@ -61,6 +61,13 @@ public class GamePlayer : Entity
         IsWinner = true;
     }
 
+    public void OverrideStats(int pointsScored, int dartsThrown)
+    {
+        PointsScored = pointsScored;
+        DartsThrown = dartsThrown;
+        RecalculatePPD();
+    }
+
     private void RecalculatePPD()
     {
         PPD = DartsThrown > 0

@@ -76,8 +76,37 @@ public class BotEngine : IBotService
 
         if (checkoutTarget == null)
         {
-            // No valid checkout or too complex, aim for setup or scoring
-            return SimulateNormalThrow(60m, consistency); // Aim high to set up checkout
+            // Valid setup for low scores to avoid Busting (aiming for T20 on score 15 will bust)
+            if (remainingScore <= 60)
+            {
+                 // Try to leave D16 (32)
+                 var setupFor32 = remainingScore - 32;
+                 if (setupFor32 > 0 && setupFor32 <= 20) 
+                 {
+                     return ApplyAccuracy(setupFor32, Multiplier.Single, consistency);
+                 }
+                 
+                 // Try to leave D8 (16)
+                 var setupFor16 = remainingScore - 16;
+                 if (setupFor16 > 0 && setupFor16 <= 20) 
+                 {
+                     return ApplyAccuracy(setupFor16, Multiplier.Single, consistency);
+                 }
+
+                 // Just try to get to an even number (likely D1 or D2)
+                 if (remainingScore % 2 != 0)
+                 {
+                      return ApplyAccuracy(1, Multiplier.Single, consistency);
+                 }
+                 
+                 // Fallback for even numbers not covered above (should be covered by CalculateCheckoutTarget though)
+                 // But strictly speaking, if we are here with even number < 40, CalculateCheckoutTarget FAILED?
+                 // CalculateCheckout handles <= 40 even.
+                 // So we are likely here with > 40 or odd numbers.
+            }
+
+            // No valid checkout or too complex but score is high enough to score points
+            return SimulateNormalThrow(60m, consistency); 
         }
 
         // Attempt the checkout with skill-based success probability

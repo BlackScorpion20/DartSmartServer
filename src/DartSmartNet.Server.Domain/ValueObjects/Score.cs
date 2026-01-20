@@ -1,15 +1,20 @@
+using System.Text.Json.Serialization;
+
 namespace DartSmartNet.Server.Domain.ValueObjects;
 
 public sealed record Score
 {
     public int Segment { get; init; }
     public Multiplier Multiplier { get; init; }
+    public bool IsOuter { get; init; }
     public int Points => CalculatePoints();
 
-    private Score(int segment, Multiplier multiplier)
+    [JsonConstructor]
+    public Score(int segment, Multiplier multiplier, bool isOuter = false)
     {
         Segment = segment;
         Multiplier = multiplier;
+        IsOuter = isOuter;
     }
 
     private int CalculatePoints()
@@ -24,18 +29,17 @@ public sealed record Score
     public bool IsBullseye() => Segment == 25;
 
     // Factory methods
-    public static Score Miss() => new(0, Multiplier.Single);
-    public static Score Single(int segment) => new(segment, Multiplier.Single);
-    public static Score Double(int segment) => new(segment, Multiplier.Double);
-    public static Score Triple(int segment) => new(segment, Multiplier.Triple);
-    public static Score SingleBull() => new(25, Multiplier.Single);
-    public static Score DoubleBull() => new(25, Multiplier.Double);
+    public static Score Miss() => new(0, Multiplier.Single, false);
+    public static Score Single(int segment, bool isOuter = false) => new(segment, Multiplier.Single, isOuter);
+    public static Score Double(int segment) => new(segment, Multiplier.Double, true);
+    public static Score Triple(int segment) => new(segment, Multiplier.Triple, false);
+    public static Score SingleBull() => new(25, Multiplier.Single, false);
+    public static Score DoubleBull() => new(25, Multiplier.Double, false);
 
     public override string ToString()
     {
         if (Segment == 0) return "MISS";
-        if (Segment == 25 && Multiplier == Multiplier.Double) return "BULL";
-        if (Segment == 25) return "25";
+        if (Segment == 25) return "BULL";
 
         return Multiplier switch
         {

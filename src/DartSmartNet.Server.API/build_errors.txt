@@ -1,10 +1,14 @@
-E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(114,44): error CS0246: The type or namespace name 'StatisticsExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
-E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(115,44): error CS0246: The type or namespace name 'EventLoggingExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
-E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(116,44): error CS0246: The type or namespace name 'WebSocketBroadcastExtension' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
-E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Program.cs(164,12): error CS0246: The type or namespace name 'BroadcastHub' could not be found (are you missing a using directive or an assembly reference?) [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+  DartSmartNet.Server.Domain -> E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Domain\bin\Debug\net9.0\DartSmartNet.Server.Domain.dll
+  DartSmartNet.Server.Application -> E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Application\bin\Debug\net9.0\DartSmartNet.Server.Application.dll
+  DartSmartNet.Server.Infrastructure -> E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.Infrastructure\bin\Debug\net9.0\DartSmartNet.Server.Infrastructure.dll
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Controllers\TrainingController.cs(174,15): error CS0101: The namespace 'DartSmartNet.Server.API.Controllers' already contains a definition for 'RegisterThrowRequest' [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Controllers\TrainingController.cs(174,35): error CS8863: Only a single partial type declaration may have a parameter list [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
 
 Build FAILED.
-    0 Warning(s)
-    4 Error(s)
 
-Time Elapsed 00:00:01.94
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Controllers\TrainingController.cs(174,15): error CS0101: The namespace 'DartSmartNet.Server.API.Controllers' already contains a definition for 'RegisterThrowRequest' [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\Controllers\TrainingController.cs(174,35): error CS8863: Only a single partial type declaration may have a parameter list [E:\Dev\CSharp\DartSmartNet\server\src\DartSmartNet.Server.API\DartSmartNet.Server.API.csproj]
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:01.62

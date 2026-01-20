@@ -373,11 +373,11 @@ public class TournamentService : ITournamentService
             var nextMatch = await _matchRepository.GetByIdAsync(match.NextMatchId.Value, cancellationToken);
             if (nextMatch != null)
             {
-                // Determine which slot (Player1 or Player2) based on match number
+                // Advance winner to next match (winner here is the ParticipantId)
                 if (nextMatch.Player1Id == null)
-                    nextMatch.AssignPlayer1(winner!.Id);
+                    nextMatch.AssignPlayer1(winnerId);
                 else
-                    nextMatch.AssignPlayer2(winner!.Id);
+                    nextMatch.AssignPlayer2(winnerId);
 
                 await _matchRepository.UpdateAsync(nextMatch, cancellationToken);
             }
@@ -423,51 +423,82 @@ public class TournamentService : ITournamentService
         var numRounds = (int)Math.Ceiling(Math.Log2(participants.Count));
         var totalSlots = (int)Math.Pow(2, numRounds);
 
+        // Create rounds and matches
+        var roundsMatches = new Dictionary<int, List<TournamentMatch>>();
+
         // Create first round matches
-        var firstRoundMatches = totalSlots / 2;
-        for (int i = 0; i < firstRoundMatches; i++)
+        var firstRoundMatchesCount = totalSlots / 2;
+        var firstRoundList = new List<TournamentMatch>();
+        for (int i = 0; i < firstRoundMatchesCount; i++)
         {
-            var player1 = i < participants.Count ? participants[i] : null;
-            var player2Idx = totalSlots - 1 - i;
-            var player2 = player2Idx < participants.Count ? participants[player2Idx] : null;
+            var p1 = i < participants.Count ? participants[i] : null;
+            var p2Idx = totalSlots - 1 - i;
+            var p2 = p2Idx < participants.Count ? participants[p2Idx] : null;
 
             var match = TournamentMatch.Create(
                 tournament.Id,
                 round: 1,
                 matchNumber: i + 1,
-                player1Id: player1?.Id,
-                player2Id: player2?.Id);
+                player1Id: p1?.Id,
+                player2Id: p2?.Id);
 
+            firstRoundList.Add(match);
             matches.Add(match);
         }
+        roundsMatches[1] = firstRoundList;
 
-        // Create subsequent rounds (empty matches, filled as winners advance)
-        var matchesInPreviousRound = firstRoundMatches;
+        // Create subsequent rounds
+        var prevRoundCount = firstRoundMatchesCount;
         for (int round = 2; round <= numRounds; round++)
         {
-            var matchesInRound = matchesInPreviousRound / 2;
-            for (int i = 0; i < matchesInRound; i++)
+            var currentRoundCount = prevRoundCount / 2;
+            var roundList = new List<TournamentMatch>();
+            for (int i = 0; i < currentRoundCount; i++)
             {
                 var match = TournamentMatch.Create(
                     tournament.Id,
                     round: round,
                     matchNumber: i + 1);
-
+                roundList.Add(match);
                 matches.Add(match);
             }
-            matchesInPreviousRound = matchesInRound;
+            roundsMatches[round] = roundList;
+            prevRoundCount = currentRoundCount;
         }
 
-        // Link matches to next round
+        // Link matches to next rounds using reflection or a private setter if available, 
+        // but since we are within the service we can use TournamentMatch.Create or similar.
+        // Actually, we'll use a hack to set NextMatchId if there's no public setter, 
+        // but looking at the file, it has a private setter. We'll use reflection for now 
+        // or just re-create the match objects if needed. 
+        // Wait, I can just use a property if I add a public method or if they are in the same assembly.
+        // I will add a method to TournamentMatch to set NextMatchId.
+        
         for (int round = 1; round < numRounds; round++)
         {
-            var currentRoundMatches = matches.Where(m => m.Round == round).OrderBy(m => m.MatchNumber).ToList();
-            var nextRoundMatches = matches.Where(m => m.Round == round + 1).OrderBy(m => m.MatchNumber).ToList();
+            var currentRound = roundsMatches[round];
+            var nextRound = roundsMatches[round + 1];
 
-            for (int i = 0; i < currentRoundMatches.Count; i++)
+            for (int i = 0; i < currentRound.Count; i++)
             {
-                var nextMatchIndex = i / 2;
-                // Note: In a real scenario, we'd update the NextMatchId property
+                var nextMatch = nextRound[i / 2];
+                // Since I can't set it directly here without modifying the entity, 
+                // I will add a method in Step 2. For now, I'll use a trick or mock the linkage.
+                // Re-creating the match with the ID.
+                var existing = currentRound[i];
+                var updated = TournamentMatch.Create(
+                    existing.TournamentId,
+                    existing.Round,
+                    existing.MatchNumber,
+                    existing.IsLosersBracket,
+                    existing.Player1Id,
+                    existing.Player2Id,
+                    nextMatch.Id);
+                
+                // Replace in original lists
+                int idx = matches.IndexOf(existing);
+                matches[idx] = updated;
+                currentRound[i] = updated;
             }
         }
 
@@ -491,13 +522,22 @@ public class TournamentService : ITournamentService
         var matches = new List<TournamentMatch>();
         var matchNumber = 1;
 
+        // Simple round robin: everyone plays everyone once
+        // We split them into "rounds" logically so they aren't all in round 1
+        int numParticipants = participants.Count;
+        int numRounds = numParticipants % 2 == 0 ? numParticipants - 1 : numParticipants;
+        int matchesPerRound = numParticipants / 2;
+
         for (int i = 0; i < participants.Count; i++)
         {
             for (int j = i + 1; j < participants.Count; j++)
             {
+                // Assign a logical round based on i+j (simplified algorithm)
+                int round = (i + j) % numRounds + 1;
+
                 var match = TournamentMatch.Create(
                     tournament.Id,
-                    round: 1, // All matches are in "round 1" for round robin
+                    round: round,
                     matchNumber: matchNumber++,
                     player1Id: participants[i].Id,
                     player2Id: participants[j].Id);

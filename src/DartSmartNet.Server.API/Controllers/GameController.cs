@@ -165,6 +165,36 @@ public class GameController : ControllerBase
     }
 
     /// <summary>
+    /// Register a throw in a game
+    /// </summary>
+    [HttpPost("{gameId}/throw")]
+    [ProducesResponseType(typeof(GameStateDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RegisterThrow(Guid gameId, [FromBody] RegisterGameThrowRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var userId = GetUserId();
+            _logger.LogInformation("User {UserId} registered throw in game {GameId}: {Segment} x{Multiplier}", 
+                userId, gameId, request.Score.Segment, request.Score.Multiplier);
+
+            var gameState = await _gameService.RegisterThrowAsync(gameId, userId, request.Score, request.RawData, cancellationToken);
+
+            return Ok(gameState);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error registering throw in game {GameId}", gameId);
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Failed to register throw",
+                Detail = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
     /// End a game
     /// </summary>
     [HttpPost("{gameId}/end")]
@@ -213,4 +243,9 @@ public record CreateGameRequest(
     Guid[]? PlayerIds,
     bool IsOnline,
     GameOptions? Options = null
+);
+
+public record RegisterGameThrowRequest(
+    Score Score,
+    byte[]? RawData = null
 );

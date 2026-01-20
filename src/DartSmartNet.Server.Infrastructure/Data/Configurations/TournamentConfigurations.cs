@@ -44,7 +44,7 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
         builder.HasIndex(t => t.IsPublic);
         builder.HasIndex(t => t.JoinCode)
             .IsUnique()
-            .HasFilter("[JoinCode] IS NOT NULL");
+            .HasFilter("\"JoinCode\" IS NOT NULL");
     }
 }
 

@@ -263,7 +263,7 @@ public class GameService : IGameService
 
         await _gameRepository.UpdateAsync(game, cancellationToken);
 
-        // Update statistics if game was completed properly
+        // Update statistics if game was completed or ended manually
         if (game.Status == GameStatus.Completed)
         {
             await UpdateGameStatistics(game, cancellationToken);
@@ -479,29 +479,108 @@ public class GameService : IGameService
 
     private async Task UpdateGameStatistics(GameSession game, CancellationToken cancellationToken)
     {
+        if (!game.StartingScore.HasValue) return;
+
         foreach (var player in game.Players)
         {
             // Skip bot players (empty GUID)
             if (player.UserId == Guid.Empty)
                 continue;
 
-            // Compute all round scores for stats
-            var roundScores = game.Throws
-                .Where(t => t.UserId == player.UserId)
-                .GroupBy(t => t.RoundNumber)
-                .Select(g => g.Sum(t => t.Points))
-                .ToList();
+            // Recalculate VALID points and darts for this player
+            var validPoints = 0;
+            var totalDarts = 0;
+            var currentTotal = game.StartingScore.Value;
+            var hasOpened = game.Options.InMode != "Double";
+            
+            var roundScoresList = new List<int>();
 
-            var checkout = player.IsWinner && game.Throws.Any(t => t.UserId == player.UserId)
+            var roundGroups = game.Throws
+                .Where(t => t.UserId == player.UserId)
+                .OrderBy(t => t.RoundNumber)
+                .ThenBy(t => t.DartNumber)
+                .GroupBy(t => t.RoundNumber);
+
+            foreach (var round in roundGroups)
+            {
+                var roundPoints = 0;
+                var roundDarts = 0;
+                var roundBust = false;
+
+                foreach (var dart in round)
+                {
+                    roundDarts++;
+                    if (!hasOpened)
+                    {
+                        if (dart.Multiplier == Multiplier.Double)
+                            hasOpened = true;
+                        else
+                            continue; // Doesn't count towards score
+                    }
+
+                    var tempScore = currentTotal - roundPoints - dart.Points;
+                    
+                    // Bust logic
+                    if (tempScore < 0 || (tempScore == 1 && game.Options.OutMode != "Straight"))
+                    {
+                        roundBust = true;
+                        break;
+                    }
+                    
+                    if (tempScore == 0)
+                    {
+                        var validOut = (game.Options.OutMode == "Straight") || 
+                                     (game.Options.OutMode == "Double" && dart.Multiplier == Multiplier.Double) ||
+                                     (game.Options.OutMode == "Master" && (dart.Multiplier == Multiplier.Double || dart.Multiplier == Multiplier.Triple));
+
+                        if (!validOut)
+                        {
+                            roundBust = true;
+                            break;
+                        }
+                        
+                        roundPoints += dart.Points;
+                        currentTotal = 0;
+                        goto ProcessingComplete;
+                    }
+
+                    roundPoints += dart.Points;
+                }
+
+                if (!roundBust)
+                {
+                    validPoints += roundPoints;
+                    currentTotal -= roundPoints;
+                    roundScoresList.Add(roundPoints);
+                }
+                else
+                {
+                    roundScoresList.Add(0); // Bust round counts as 0 points
+                }
+                totalDarts += roundDarts;
+            }
+
+            ProcessingComplete:
+            if (currentTotal == 0)
+            {
+                // This handles cases where we hit 0 in the inner loop
+                validPoints = game.StartingScore.Value;
+                // totalDarts is already updated
+            }
+
+            // Update the GamePlayer entity with verified stats
+            player.OverrideStats(validPoints, totalDarts);
+
+            var checkout = player.IsWinner && currentTotal == 0 && game.Throws.Any(t => t.UserId == player.UserId)
                 ? game.Throws.Where(t => t.UserId == player.UserId).Last().Points
                 : 0;
 
             await _statisticsService.UpdateStatsAfterGameAsync(
                 player.UserId,
                 player.IsWinner,
-                player.DartsThrown,
-                player.PointsScored,
-                roundScores,
+                totalDarts,
+                validPoints,
+                roundScoresList,
                 checkout,
                 cancellationToken);
         }
