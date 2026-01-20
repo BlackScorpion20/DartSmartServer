@@ -14,39 +14,29 @@ namespace DartSmartNet.Server.Infrastructure.Services;
 /// </summary>
 public class GameEventBroadcaster : IGameEventBroadcaster
 {
-    private readonly List<IGameExtension> _extensions = new();
+    private readonly IEnumerable<IGameExtension> _extensions;
     private readonly ILogger<GameEventBroadcaster> _logger;
 
-    public GameEventBroadcaster(ILogger<GameEventBroadcaster> logger)
+    public GameEventBroadcaster(IEnumerable<IGameExtension> extensions, ILogger<GameEventBroadcaster> logger)
     {
+        _extensions = extensions;
         _logger = logger;
     }
 
     public void RegisterExtension(IGameExtension extension)
     {
-        if (_extensions.Any(e => e.ExtensionId == extension.ExtensionId))
-        {
-            _logger.LogWarning("Extension {ExtensionId} is already registered", extension.ExtensionId);
-            return;
-        }
-
-        _extensions.Add(extension);
-        _logger.LogInformation("Registered extension: {ExtensionName} ({ExtensionId})",
-            extension.Name, extension.ExtensionId);
+        // No-op or throw if manual registration is no longer desired
+        _logger.LogWarning("Manual registration of extensions is deprecated. Register via DI instead.");
     }
 
     public void UnregisterExtension(string extensionId)
     {
-        var removed = _extensions.RemoveAll(e => e.ExtensionId == extensionId);
-        if (removed > 0)
-        {
-            _logger.LogInformation("Unregistered extension: {ExtensionId}", extensionId);
-        }
+        _logger.LogWarning("Manual unregistration of extensions is not supported in DI mode.");
     }
 
     public IReadOnlyList<IGameExtension> GetRegisteredExtensions()
     {
-        return _extensions.AsReadOnly();
+        return _extensions.ToList().AsReadOnly();
     }
 
     public async Task BroadcastEventAsync(GameEvent gameEvent, CancellationToken cancellationToken = default)

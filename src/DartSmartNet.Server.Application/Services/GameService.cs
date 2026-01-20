@@ -2,6 +2,7 @@ using DartSmartNet.Server.Application.DTOs.Game;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Domain.Entities;
 using DartSmartNet.Server.Domain.Enums;
+using DartSmartNet.Server.Domain.Events;
 using DartSmartNet.Server.Domain.ValueObjects;
 
 namespace DartSmartNet.Server.Application.Services;
@@ -11,16 +12,19 @@ public class GameService : IGameService
     private readonly IGameRepository _gameRepository;
     private readonly IUserRepository _userRepository;
     private readonly IStatisticsService _statisticsService;
+    private readonly IGameEventBroadcaster _eventBroadcaster;
     private static readonly int[] CricketSegments = { 20, 19, 18, 17, 16, 15, 25 };
 
     public GameService(
         IGameRepository gameRepository,
         IUserRepository userRepository,
-        IStatisticsService statisticsService)
+        IStatisticsService statisticsService,
+        IGameEventBroadcaster eventBroadcaster)
     {
         _gameRepository = gameRepository;
         _userRepository = userRepository;
         _statisticsService = statisticsService;
+        _eventBroadcaster = eventBroadcaster;
     }
 
     public async Task<GameStateDto> CreateGameAsync(
@@ -133,6 +137,27 @@ public class GameService : IGameService
         var dartThrow = DartThrow.Create(gameId, userId, roundNumber, dartNumber, score, rawData);
         game.AddThrow(dartThrow);
 
+        // Get player username for event
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        var playerUsername = user?.Username ?? "Unknown";
+        var currentScoreForEvent = game.StartingScore.HasValue 
+            ? CalculateCurrentScore(game, userId) 
+            : 0;
+
+        // Broadcast throw event
+        var throwEvent = new DartsThrowEvent(
+            gameId,
+            DateTime.UtcNow,
+            game.GameType.ToString(),
+            playerUsername,
+            currentScoreForEvent,
+            dartNumber,
+            score.Segment,
+            (int)score.Multiplier,
+            score.Points
+        );
+        await _eventBroadcaster.BroadcastEventAsync(throwEvent, cancellationToken);
+
         // Check for game completion
         if (IsX01Game(game.GameType) && game.StartingScore.HasValue)
         {
@@ -143,6 +168,18 @@ public class GameService : IGameService
                 // Player finished (CalculateCurrentScore validates In/Out logic)
                 game.Complete(userId);
                 player.SetFinalScore(0);
+                
+                // Broadcast game won event
+                var wonEvent = new GameWonEvent(
+                    gameId,
+                    DateTime.UtcNow,
+                    game.GameType.ToString(),
+                    playerUsername,
+                    player.DartsThrown,
+                    player.PointsScored,
+                    (double)player.PPD
+                );
+                await _eventBroadcaster.BroadcastEventAsync(wonEvent, cancellationToken);
                 
                 // Update statistics
                 await UpdateGameStatistics(game, cancellationToken);
@@ -173,6 +210,18 @@ public class GameService : IGameService
                 game.Complete(userId);
                 // For Cricket, 'FinalScore' typically refers to the Points total
                 player.SetFinalScore(playerScore);
+                
+                // Broadcast game won event for Cricket
+                var wonEvent = new GameWonEvent(
+                    gameId,
+                    DateTime.UtcNow,
+                    game.GameType.ToString(),
+                    playerUsername,
+                    player.DartsThrown,
+                    playerScore,
+                    (double)player.PPD
+                );
+                await _eventBroadcaster.BroadcastEventAsync(wonEvent, cancellationToken);
                 
                 await UpdateGameStatistics(game, cancellationToken);
             }

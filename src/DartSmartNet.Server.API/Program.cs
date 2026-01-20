@@ -115,7 +115,8 @@ builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
 // Event Broadcasting System
-builder.Services.AddSingleton<IGameEventBroadcaster, InfraServices.GameEventBroadcaster>();
+// Event Broadcasting System
+builder.Services.AddScoped<IGameEventBroadcaster, InfraServices.GameEventBroadcaster>();
 
 // Game Extensions (Plugin Architecture)
 builder.Services.AddScoped<IGameExtension, StatisticsExtension>();
@@ -178,16 +179,5 @@ app.MapHub<BroadcastHub>("/hubs/broadcast"); // For external clients (LED, overl
 // Health Check Endpoint
 app.MapHealthChecks("/health");
 
-// Register extensions with broadcaster
-using (var scope = app.Services.CreateScope())
-{
-    var broadcaster = scope.ServiceProvider.GetRequiredService<IGameEventBroadcaster>();
-    var extensions = scope.ServiceProvider.GetServices<IGameExtension>();
-
-    foreach (var extension in extensions)
-    {
-        broadcaster.RegisterExtension(extension);
-    }
-}
 
 app.Run();
