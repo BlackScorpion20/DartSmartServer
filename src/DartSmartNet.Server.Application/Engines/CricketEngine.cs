@@ -39,12 +39,41 @@ public class CricketEngine : IGameEngine
 
         var playerState = states[userId];
         var allClosed = CricketSegments.All(s => playerState.Marks.ContainsKey(s) && playerState.Marks[s] >= 3);
-        var isHighestScore = states.All(kv => kv.Value.Score <= playerState.Score);
 
-        if (allClosed && isHighestScore)
+        // Cricket Mode logic
+        var cricketMode = game.Options?.CricketMode ?? "Standard";
+
+        switch (cricketMode)
         {
-            finalScore = playerState.Score;
-            return true;
+            case "NoScore":
+                // No-Score: First to close all wins
+                if (allClosed)
+                {
+                    finalScore = 0;
+                    return true;
+                }
+                break;
+
+            case "CutThroat":
+                // Cut-Throat: All closed + LOWEST score wins
+                var isLowestScore = states.All(kv => kv.Value.Score >= playerState.Score);
+                if (allClosed && isLowestScore)
+                {
+                    finalScore = playerState.Score;
+                    return true;
+                }
+                break;
+
+            case "Standard":
+            default:
+                // Standard: All closed + HIGHEST score wins
+                var isHighestScore = states.All(kv => kv.Value.Score <= playerState.Score);
+                if (allClosed && isHighestScore)
+                {
+                    finalScore = playerState.Score;
+                    return true;
+                }
+                break;
         }
 
         finalScore = null;
@@ -96,6 +125,7 @@ public class CricketEngine : IGameEngine
                 p => (Score: 0, Marks: CricketSegments.ToDictionary(s => s, s => 0))
         );
 
+        var cricketMode = game.Options?.CricketMode ?? "Standard";
         var sortedThrows = game.Throws.OrderBy(t => t.ThrownAt).ToList();
 
         foreach (var t in sortedThrows)
@@ -120,12 +150,33 @@ public class CricketEngine : IGameEngine
                 }
                 else
                 {
+                    // Scoring logic depends on Cricket mode
+                    if (cricketMode == "NoScore")
+                    {
+                        // No-Score mode: No points, just closing
+                        continue;
+                    }
+
                     var opponents = state.Keys.Where(k => k != playerId);
                     var isClosedByAllOpponents = opponents.All(oId => state[oId].Marks[segment] >= 3);
 
                     if (!isClosedByAllOpponents)
                     {
-                        playerState.Score += segment;
+                        if (cricketMode == "CutThroat")
+                        {
+                            // Cut-Throat: Give points to OPPONENTS
+                            foreach (var opponentId in opponents.Where(oId => state[oId].Marks[segment] < 3))
+                            {
+                                var opponentState = state[opponentId];
+                                opponentState.Score += segment;
+                                state[opponentId] = opponentState;
+                            }
+                        }
+                        else // Standard
+                        {
+                            // Standard: Give points to SELF
+                            playerState.Score += segment;
+                        }
                     }
                 }
             }
