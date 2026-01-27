@@ -44,9 +44,9 @@ public class GameSession : Entity
         };
     }
 
-    public void AddPlayer(Guid userId, int playerOrder)
+    public void AddPlayer(Guid? userId, int playerOrder, PlayerType playerType = PlayerType.Human, string? displayName = null)
     {
-        var player = GamePlayer.Create(Id, userId, playerOrder);
+        var player = GamePlayer.Create(Id, userId, playerOrder, playerType, displayName);
         Players.Add(player);
     }
 

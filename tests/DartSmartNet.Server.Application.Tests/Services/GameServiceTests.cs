@@ -1,4 +1,4 @@
-using DartSmartNet.Server.Application.DTOs.Game;
+using DartSmartNet.Server.Application.Engines;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Application.Services;
 using DartSmartNet.Server.Domain.Entities;
@@ -15,6 +15,9 @@ public class GameServiceTests
     private readonly IGameRepository _gameRepository;
     private readonly IUserRepository _userRepository;
     private readonly IStatisticsService _statisticsService;
+    private readonly IGameEventBroadcaster _eventBroadcaster;
+    private readonly IGameEngine _x01Engine;
+    private readonly IGameEngine _cricketEngine;
     private readonly GameService _sut;
 
     public GameServiceTests()
@@ -22,7 +25,17 @@ public class GameServiceTests
         _gameRepository = Substitute.For<IGameRepository>();
         _userRepository = Substitute.For<IUserRepository>();
         _statisticsService = Substitute.For<IStatisticsService>();
-        _sut = new GameService(_gameRepository, _userRepository, _statisticsService);
+        _eventBroadcaster = Substitute.For<IGameEventBroadcaster>();
+        
+        _x01Engine = Substitute.For<IGameEngine>();
+        _x01Engine.GameType.Returns(GameType.X01);
+        
+        _cricketEngine = Substitute.For<IGameEngine>();
+        _cricketEngine.GameType.Returns(GameType.Cricket);
+
+        var engines = new[] { _x01Engine, _cricketEngine };
+        
+        _sut = new GameService(_gameRepository, _userRepository, _statisticsService, _eventBroadcaster, engines);
     }
 
     [Fact]

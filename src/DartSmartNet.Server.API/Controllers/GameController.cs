@@ -40,20 +40,47 @@ public class GameController : ControllerBase
             var userId = GetUserId();
             _logger.LogInformation("User {UserId} creating game: {GameType}", userId, request.GameType);
 
-            // Add current user to player list if not already included
-            var playerIds = request.PlayerIds?.ToList() ?? new List<Guid>();
-            if (!playerIds.Contains(userId))
-            {
-                playerIds.Insert(0, userId);
-            }
+            GameStateDto gameState;
 
-            var gameState = await _gameService.CreateGameAsync(
-                request.GameType,
-                request.StartingScore,
-                playerIds.ToArray(),
-                request.IsOnline,
-                request.Options,
-                cancellationToken);
+            // Check if new Players format is provided
+            if (request.Players != null && request.Players.Count > 0)
+            {
+                // Use new format with PlayerSetup
+                var players = request.Players
+                    .Select(p => new PlayerSetupDto(p.UserId, p.PlayerType, p.DisplayName))
+                    .ToList();
+
+                // Ensure current user is included
+                if (!players.Any(p => p.UserId == userId))
+                {
+                    players.Insert(0, new PlayerSetupDto(userId, PlayerType.Human, null));
+                }
+
+                gameState = await _gameService.CreateGameAsync(
+                    request.GameType,
+                    request.StartingScore,
+                    players.ToArray(),
+                    request.IsOnline,
+                    request.Options,
+                    cancellationToken);
+            }
+            else
+            {
+                // Legacy format with PlayerIds
+                var playerIds = request.PlayerIds?.ToList() ?? new List<Guid>();
+                if (!playerIds.Contains(userId))
+                {
+                    playerIds.Insert(0, userId);
+                }
+
+                gameState = await _gameService.CreateGameAsync(
+                    request.GameType,
+                    request.StartingScore,
+                    playerIds.ToArray(),
+                    request.IsOnline,
+                    request.Options,
+                    cancellationToken);
+            }
 
             _logger.LogInformation("Game {GameId} created successfully", gameState.GameId);
 
@@ -172,58 +199,26 @@ public class GameController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RegisterThrow(Guid gameId, [FromBody] RegisterGameThrowRequest request, CancellationToken cancellationToken)
     {
-        const int maxRetries = 3;
-        var attempt = 0;
-        
-        while (attempt < maxRetries)
+        try
         {
-            try
-            {
-                attempt++;
-                var userId = GetUserId();
-                _logger.LogInformation("User {UserId} registered throw in game {GameId}: {Segment} x{Multiplier} (attempt {Attempt})", 
-                    userId, gameId, request.Score.Segment, request.Score.Multiplier, attempt);
+            var userId = GetUserId();
+            _logger.LogInformation("User {UserId} registering throw in game {GameId}: {Segment} x{Multiplier}",
+                userId, gameId, request.Score.Segment, request.Score.Multiplier);
 
-                var gameState = await _gameService.RegisterThrowAsync(gameId, userId, request.Score, request.RawData, cancellationToken);
+            var gameState = await _gameService.RegisterThrowAsync(gameId, userId, request.Score, request.RawData, cancellationToken);
 
-                return Ok(gameState);
-            }
-            catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
-            {
-                _logger.LogWarning(ex, "Concurrency conflict registering throw in game {GameId}, attempt {Attempt}/{MaxRetries}", 
-                    gameId, attempt, maxRetries);
-                
-                if (attempt >= maxRetries)
-                {
-                    return StatusCode(StatusCodes.Status409Conflict, new ProblemDetails
-                    {
-                        Status = StatusCodes.Status409Conflict,
-                        Title = "Concurrency conflict",
-                        Detail = "Unable to register throw due to concurrent modifications. Please try again."
-                    });
-                }
-                
-                // Small delay before retry
-                await Task.Delay(50 * attempt, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error registering throw in game {GameId}", gameId);
-                return BadRequest(new ProblemDetails
-                {
-                    Status = StatusCodes.Status400BadRequest,
-                    Title = "Failed to register throw",
-                    Detail = ex.Message
-                });
-            }
+            return Ok(gameState);
         }
-        
-        return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+        catch (Exception ex)
         {
-            Status = StatusCodes.Status500InternalServerError,
-            Title = "Unexpected error",
-            Detail = "Failed to register throw after multiple attempts"
-        });
+            _logger.LogError(ex, "Error registering throw in game {GameId}", gameId);
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Failed to register throw",
+                Detail = ex.Message
+            });
+        }
     }
 
     /// <summary>
@@ -269,11 +264,27 @@ public class GameController : ControllerBase
     }
 }
 
+/// <summary>
+/// Player setup for creating a new game
+/// </summary>
+public record PlayerSetup(
+    Guid? UserId,
+    PlayerType PlayerType,
+    string? DisplayName = null
+);
+
 public record CreateGameRequest(
     GameType GameType,
     int? StartingScore,
-    Guid[]? PlayerIds,
-    bool IsOnline,
+    /// <summary>
+    /// Legacy: Simple array of player IDs (all treated as Human, Guid.Empty as Bot)
+    /// </summary>
+    Guid[]? PlayerIds = null,
+    /// <summary>
+    /// New: Full player setup with type and display name
+    /// </summary>
+    List<PlayerSetup>? Players = null,
+    bool IsOnline = false,
     GameOptions? Options = null
 );
 
@@ -281,3 +292,4 @@ public record RegisterGameThrowRequest(
     Score Score,
     byte[]? RawData = null
 );
+

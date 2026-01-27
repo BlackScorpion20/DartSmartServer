@@ -1,4 +1,4 @@
-# DartSmartNet Server Architecture
+2# DartSmartNet Server Architecture
 
 ## Overview
 ASP.NET Core Web API mit SignalR für Real-time Multiplayer-Funktionalität, PostgreSQL/TimescaleDB für Statistiken und Game History.

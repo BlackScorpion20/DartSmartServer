@@ -92,3 +92,7 @@ TestResults/
 gemini.md
 server_*.txt
 skills.md
+# Temporary build files
+build_output.txt
+project_files.txt
+project_structure.txt

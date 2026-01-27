@@ -3,6 +3,7 @@ using System;
 using DartSmartNet.Server.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DartSmartNet.Server.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260121134903_MakeGamePlayerUserIdNullable")]
+    partial class MakeGamePlayerUserIdNullable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -189,11 +192,6 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("darts_thrown");
 
-                    b.Property<string>("DisplayName")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("display_name");
-
                     b.Property<int?>("FinalScore")
                         .HasColumnType("integer")
                         .HasColumnName("final_score");
@@ -218,12 +216,6 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                     b.Property<int>("PlayerOrder")
                         .HasColumnType("integer")
                         .HasColumnName("player_order");
-
-                    b.Property<int>("PlayerType")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("player_type");
 
                     b.Property<int>("PointsScored")
                         .ValueGeneratedOnAdd()
@@ -368,6 +360,12 @@ namespace DartSmartNet.Server.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(20)")
                         .HasDefaultValue("WaitingForPlayers")
                         .HasColumnName("status");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<Guid?>("WinnerId")
                         .HasColumnType("uuid")

@@ -15,6 +15,7 @@ public sealed record PlayerStatsDto(
     int GamesLost,
     decimal WinRate,
     decimal AveragePPD,
+    decimal MPR,
     decimal ThreeDartAverage,
     
     // High Scores

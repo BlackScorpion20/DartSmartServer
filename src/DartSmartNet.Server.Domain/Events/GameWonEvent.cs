@@ -15,16 +15,9 @@ public sealed record GameWonEvent(
 {
     public string Player { get; init; } = PlayerUsername;
     public GameEventData Game { get; init; } = new(
-        GameMode,
-        DartsThrown,
-        TotalPoints,
-        AveragePPD
-    );
-
-    public record GameEventData(
-        string Mode,
-        int DartsThrown,
-        int TotalPoints,
-        double AveragePPD
+        Mode: GameMode,
+        DartsThrown: DartsThrown,
+        TotalPoints: TotalPoints,
+        AveragePPD: AveragePPD
     );
 }

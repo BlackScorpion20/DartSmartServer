@@ -1,3 +1,4 @@
+using DartSmartNet.Server.Application.Engines;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Application.Services;
 using DartSmartNet.Server.Domain.Entities;
@@ -17,21 +18,22 @@ public class GameServiceServerTests
     private readonly IGameRepository _gameRepoMock;
     private readonly IUserRepository _userRepoMock;
     private readonly IStatisticsService _statsServiceMock;
+    private readonly IGameEventBroadcaster _eventBroadcasterMock;
+    private readonly X01Engine _x01Engine;
+    private readonly CricketEngine _cricketEngine;
 
     public GameServiceServerTests()
     {
         _gameRepoMock = Substitute.For<IGameRepository>();
         _userRepoMock = Substitute.For<IUserRepository>();
         _statsServiceMock = Substitute.For<IStatisticsService>();
-        _service = new GameService(_gameRepoMock, _userRepoMock, _statsServiceMock);
-    }
+        _eventBroadcasterMock = Substitute.For<IGameEventBroadcaster>();
 
-    // Helper to invoke private methods
-    private T InvokePrivateMethod<T>(string methodName, params object[] args)
-    {
-        var method = typeof(GameService).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance);
-        if (method == null) throw new InvalidOperationException($"Method {methodName} not found.");
-        return (T)method.Invoke(_service, args)!;
+        _x01Engine = new X01Engine(_statsServiceMock);
+        _cricketEngine = new CricketEngine(_statsServiceMock);
+        var engines = new IGameEngine[] { _x01Engine, _cricketEngine };
+
+        _service = new GameService(_gameRepoMock, _userRepoMock, _statsServiceMock, _eventBroadcasterMock, engines);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -55,6 +57,15 @@ public class GameServiceServerTests
 
         _gameRepoMock.GetByIdAsync(gameId, Arg.Any<CancellationToken>()).Returns(game);
         _userRepoMock.GetByIdAsync(userId, Arg.Any<CancellationToken>()).Returns(User.Create("TestUser", "test@test.com", "hash"));
+
+        // CRITICAL: Mock AddThrowToGame to call domain method
+        _gameRepoMock.When(x => x.AddThrowToGame(Arg.Any<GameSession>(), Arg.Any<DartThrow>()))
+            .Do(callInfo =>
+            {
+                var g = callInfo.ArgAt<GameSession>(0);
+                var dt = callInfo.ArgAt<DartThrow>(1);
+                g.AddThrow(dt);
+            });
 
         // Round 1: 60, 60, 60 (180) -> Rem: 321
         await _service.RegisterThrowAsync(gameId, userId, Score.Triple(20));
@@ -80,7 +91,8 @@ public class GameServiceServerTests
         // Scenario 1: Throw Single 20 (Score 0, but single) -> Should be Bust (Rem: 20)
         game.AddThrow(DartThrow.Create(game.Id, userId, 1, 1, Score.Single(20), null));
 
-        var score = InvokePrivateMethod<int>("CalculateCurrentScore", game, userId);
+        // Use the engine directly instead of trying to call private method on GameService
+        var score = _x01Engine.CalculateCurrentScore(game, userId);
         score.ShouldBe(20, "Single 20 on 20 remaining should be a bust (Double Out rule/Score 0)");
     }
     
@@ -94,7 +106,8 @@ public class GameServiceServerTests
         // Scenario: Throw Triple 20 (60) -> Score -40 -> Bust (Rem: 20)
         game.AddThrow(DartThrow.Create(game.Id, userId, 1, 1, Score.Triple(20), null));
 
-        var score = InvokePrivateMethod<int>("CalculateCurrentScore", game, userId);
+        // Use the engine directly
+        var score = _x01Engine.CalculateCurrentScore(game, userId);
         score.ShouldBe(20, "Triple 20 on 20 remaining should be a bust");
     }
 
@@ -108,7 +121,8 @@ public class GameServiceServerTests
         // Scenario: Throw 19 -> Rem 1 -> Bust (Rem: 20)
         game.AddThrow(DartThrow.Create(game.Id, userId, 1, 1, Score.Single(19), null));
 
-        var score = InvokePrivateMethod<int>("CalculateCurrentScore", game, userId);
+        // Use the engine directly
+        var score = _x01Engine.CalculateCurrentScore(game, userId);
         score.ShouldBe(20, "Leaving score 1 should be a bust");
     }
 
@@ -134,7 +148,8 @@ public class GameServiceServerTests
          // P2 throws 2x20 -> 2 marks (not closed)
          game.AddThrow(DartThrow.Create(game.Id, p2, 1, 1, Score.Double(20), null));
 
-         var state = InvokePrivateMethod<Dictionary<Guid, (int Score, Dictionary<int, int> Marks)>>("CalculateCricketState", game);
+         // Use the engine directly
+         var state = _cricketEngine.CalculateCricketState(game);
 
          // Checks P1
          state[p1].Marks[20].ShouldBe(3);
@@ -148,3 +163,4 @@ public class GameServiceServerTests
          state[p1].Marks[19].ShouldBe(0);
     }
 }
+

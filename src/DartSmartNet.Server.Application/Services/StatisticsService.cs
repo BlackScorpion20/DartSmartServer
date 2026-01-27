@@ -71,7 +71,6 @@ public class StatisticsService : IStatisticsService
 
         return leaderboard;
     }
-
     public async Task UpdateStatsAfterGameAsync(
         Guid userId,
         bool won,
@@ -79,11 +78,12 @@ public class StatisticsService : IStatisticsService
         int pointsScored,
         IEnumerable<int> roundScores,
         int checkout,
+        int cricketMarks = 0,
         CancellationToken cancellationToken = default)
     {
         await UpdateStatsAfterGameAsync(
             userId, won, dartsThrown, pointsScored, roundScores, checkout,
-            0, 0, 0, 0, 1, won ? 1 : 0, cancellationToken);
+            0, 0, 0, 0, 1, won ? 1 : 0, cricketMarks, cancellationToken);
     }
 
     public async Task UpdateStatsAfterGameAsync(
@@ -99,6 +99,7 @@ public class StatisticsService : IStatisticsService
         decimal first9Average,
         int legsPlayed,
         int legsWon,
+        int cricketMarks = 0,
         CancellationToken cancellationToken = default)
     {
         var stats = await _statsRepository.GetByUserIdAsync(userId, cancellationToken);
@@ -108,14 +109,14 @@ public class StatisticsService : IStatisticsService
             // Create new stats record for user
             stats = PlayerStats.CreateForUser(userId);
             stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout,
-                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon);
+                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon, cricketMarks);
             await _statsRepository.AddAsync(stats, cancellationToken);
         }
         else
         {
             // Update existing stats
             stats.UpdateAfterGame(won, dartsThrown, pointsScored, roundScores, checkout,
-                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon);
+                doubleAttempts, doubleHits, sessionAverage, first9Average, legsPlayed, legsWon, cricketMarks);
             await _statsRepository.UpdateAsync(stats, cancellationToken);
         }
     }
@@ -132,6 +133,7 @@ public class StatisticsService : IStatisticsService
             stats.GamesLost,
             stats.WinRate,
             stats.AveragePPD,
+            stats.AverageMPR,
             stats.ThreeDartAverage,
             
             // High Scores

@@ -1,7 +1,7 @@
 namespace DartSmartNet.Server.Domain.Events;
 
 /// <summary>
-/// Event fired when a dart is thrown (before all 3 darts are pulled)
+/// Event fired when a dart is thrown
 /// </summary>
 public sealed record DartsThrowEvent(
     Guid GameId,
@@ -17,20 +17,11 @@ public sealed record DartsThrowEvent(
 {
     public string Player { get; init; } = PlayerUsername;
     public GameEventData Game { get; init; } = new(
-        GameMode,
-        PointsLeft,
-        DartNumber,
-        Segment,
-        Multiplier,
-        Points
-    );
-
-    public record GameEventData(
-        string Mode,
-        int PointsLeft,
-        int DartNumber,
-        int Segment,
-        int Multiplier,
-        int Points
+        Mode: GameMode,
+        PointsLeft: PointsLeft,
+        DartNumber: DartNumber,
+        Segment: Segment,
+        Multiplier: Multiplier,
+        Points: Points
     );
 }

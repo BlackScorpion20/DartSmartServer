@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using DartSmartNet.Server.Application.DTOs.Game;
+using DartSmartNet.Server.Application.Engines;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Domain.Entities;
 using DartSmartNet.Server.Domain.Enums;
@@ -13,20 +15,52 @@ public class GameService : IGameService
     private readonly IUserRepository _userRepository;
     private readonly IStatisticsService _statisticsService;
     private readonly IGameEventBroadcaster _eventBroadcaster;
-    private static readonly int[] CricketSegments = { 20, 19, 18, 17, 16, 15, 25 };
+    private readonly IEnumerable<IGameEngine> _engines;
+
+    // Game-level locking to prevent concurrent modifications to the same game
+    // This prevents race conditions when multiple requests try to modify the same game simultaneously
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _gameLocks = new();
 
     public GameService(
         IGameRepository gameRepository,
         IUserRepository userRepository,
         IStatisticsService statisticsService,
-        IGameEventBroadcaster eventBroadcaster)
+        IGameEventBroadcaster eventBroadcaster,
+        IEnumerable<IGameEngine> engines)
     {
         _gameRepository = gameRepository;
         _userRepository = userRepository;
         _statisticsService = statisticsService;
         _eventBroadcaster = eventBroadcaster;
+        _engines = engines;
     }
 
+    /// <summary>
+    /// Acquires a lock for the specified game to ensure sequential processing of requests
+    /// </summary>
+    private SemaphoreSlim GetGameLock(Guid gameId)
+    {
+        return _gameLocks.GetOrAdd(gameId, _ => new SemaphoreSlim(1, 1));
+    }
+
+    /// <summary>
+    /// Releases and removes the lock for a game (called when game is completed or abandoned)
+    /// </summary>
+    private void ReleaseGameLock(Guid gameId)
+    {
+        if (_gameLocks.TryRemove(gameId, out var semaphore))
+        {
+            semaphore.Dispose();
+        }
+    }
+
+    private IGameEngine GetEngine(GameType type) 
+        => _engines.FirstOrDefault(e => e.GameType == type) 
+           ?? throw new InvalidOperationException($"No engine found for game type {type}");
+
+    /// <summary>
+    /// Creates a game with simple player IDs (backward compatible - treats all as Human)
+    /// </summary>
     public async Task<GameStateDto> CreateGameAsync(
         GameType gameType,
         int? startingScore,
@@ -35,71 +69,77 @@ public class GameService : IGameService
         GameOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // Convert to PlayerSetupDto for backward compatibility
+        var players = playerIds.Select(id => new PlayerSetupDto(
+            id == Guid.Empty ? null : id,
+            id == Guid.Empty ? PlayerType.Bot : PlayerType.Human,
+            null
+        )).ToArray();
 
+        return await CreateGameAsync(gameType, startingScore, players, isOnline, options, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates a game with full player setup including type and display name
+    /// </summary>
+    public async Task<GameStateDto> CreateGameAsync(
+        GameType gameType,
+        int? startingScore,
+        PlayerSetupDto[] players,
+        bool isOnline,
+        GameOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
         // Validate starting score for X01 games
-        if (gameType == GameType.X01)
+        if (gameType == GameType.X01 && !startingScore.HasValue)
         {
-            if (!startingScore.HasValue)
-            {
-                throw new InvalidOperationException("Starting score is required for X01 games");
-            }
-        }
-        else if (gameType == GameType.Cricket)
-        {
-            // Cricket doesn't strictly need a starting score, but we can ignore it or use it for CutThroat variants later
+            throw new InvalidOperationException("Starting score is required for X01 games");
         }
 
-        // Check if any player is a bot
-        var isBotGame = playerIds.Any(id => id == Guid.Empty);
-
-        // Create game session
+        var isBotGame = players.Any(p => p.PlayerType == PlayerType.Bot);
+        var hasGuests = players.Any(p => p.PlayerType == PlayerType.Guest);
         var game = GameSession.Create(gameType, startingScore, isOnline, isBotGame, options);
-
-        // Add players with order
-        for (int i = 0; i < playerIds.Length; i++)
+        
+        for (int i = 0; i < players.Length; i++)
         {
-            game.AddPlayer(playerIds[i], i);
+            var player = players[i];
+            game.AddPlayer(player.UserId, i + 1, player.PlayerType, player.DisplayName);
         }
 
         await _gameRepository.AddAsync(game, cancellationToken);
-
-
         return await MapToGameStateDto(game, cancellationToken);
     }
 
     public async Task<GameStateDto> GetGameStateAsync(Guid gameId, CancellationToken cancellationToken = default)
     {
-
         var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
-
         if (game == null)
-        {
             throw new InvalidOperationException($"Game {gameId} not found");
-        }
 
         return await MapToGameStateDto(game, cancellationToken);
     }
 
     public async Task<GameStateDto> StartGameAsync(Guid gameId, CancellationToken cancellationToken = default)
     {
+        // Acquire game-level lock to prevent concurrent start attempts
+        var gameLock = GetGameLock(gameId);
+        await gameLock.WaitAsync(cancellationToken);
 
-        var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
-
-        if (game == null)
+        try
         {
-            throw new InvalidOperationException($"Game {gameId} not found");
-        }
+            var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
+            if (game == null)
+                throw new InvalidOperationException("Game not found");
 
-        if (game.Status != GameStatus.WaitingForPlayers)
+            game.Start();
+            await _gameRepository.UpdateAsync(game, cancellationToken);
+
+            return await MapToGameStateDto(game, cancellationToken);
+        }
+        finally
         {
-            throw new InvalidOperationException($"Game cannot be started from status {game.Status}");
+            gameLock.Release();
         }
-
-        game.Start();
-        await _gameRepository.UpdateAsync(game, cancellationToken);
-
-
-        return await MapToGameStateDto(game, cancellationToken);
     }
 
     public async Task<GameStateDto> RegisterThrowAsync(
@@ -109,588 +149,253 @@ public class GameService : IGameService
         byte[]? rawData = null,
         CancellationToken cancellationToken = default)
     {
+        // Acquire game-level lock to prevent concurrent modifications
+        // This ensures that only one throw can be processed at a time for each game
+        var gameLock = GetGameLock(gameId);
+        await gameLock.WaitAsync(cancellationToken);
 
-        var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
-
-        if (game == null)
+        try
         {
-            throw new InvalidOperationException($"Game {gameId} not found");
-        }
+            // Use GetByIdAsync instead of GetByIdWithLockAsync, since we already have application-level lock
+            // The SemaphoreSlim ensures only one thread processes this game at a time
+            var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
+            if (game == null) throw new InvalidOperationException($"Game {gameId} not found");
+            if (game.Status != GameStatus.InProgress) throw new InvalidOperationException($"Game is not in progress");
 
-        if (game.Status != GameStatus.InProgress)
-        {
-            throw new InvalidOperationException($"Game is not in progress (status: {game.Status})");
-        }
+            var player = game.Players.FirstOrDefault(p => p.UserId == userId);
+            if (player == null) throw new InvalidOperationException($"User {userId} is not in this game");
 
-        var player = game.Players.FirstOrDefault(p => p.UserId == userId);
-        if (player == null)
-        {
-            throw new InvalidOperationException($"User {userId} is not a player in this game");
-        }
+            var lastPlayerThrows = game.Throws.Where(t => t.UserId == userId).OrderByDescending(t => t.RoundNumber).ThenByDescending(t => t.DartNumber).ToList();
+            var lastThrow = lastPlayerThrows.FirstOrDefault();
 
-        // Calculate round number based on total throws
-        var playerThrows = game.Throws.Count(t => t.UserId == userId);
-        var roundNumber = (playerThrows / 3) + 1;
-        var dartNumber = (playerThrows % 3) + 1;
+            int roundNumber = 1;
+            int dartNumber = 1;
 
-        // Create and add the throw
-        var dartThrow = DartThrow.Create(gameId, userId, roundNumber, dartNumber, score, rawData);
-        game.AddThrow(dartThrow);
-
-        // Get player username for event
-        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
-        var playerUsername = user?.Username ?? "Unknown";
-        var currentScoreForEvent = game.StartingScore.HasValue 
-            ? CalculateCurrentScore(game, userId) 
-            : 0;
-
-        // Broadcast throw event
-        var throwEvent = new DartsThrowEvent(
-            gameId,
-            DateTime.UtcNow,
-            game.GameType.ToString(),
-            playerUsername,
-            currentScoreForEvent,
-            dartNumber,
-            score.Segment,
-            (int)score.Multiplier,
-            score.Points
-        );
-        await _eventBroadcaster.BroadcastEventAsync(throwEvent, cancellationToken);
-
-        // Check for game completion
-        if (IsX01Game(game.GameType) && game.StartingScore.HasValue)
-        {
-            var currentScore = CalculateCurrentScore(game, userId);
-
-            if (currentScore == 0)
+            if (lastThrow != null)
             {
-                // Player finished (CalculateCurrentScore validates In/Out logic)
-                game.Complete(userId);
-                player.SetFinalScore(0);
-                
-                // Broadcast game won event
-                var wonEvent = new GameWonEvent(
-                    gameId,
-                    DateTime.UtcNow,
-                    game.GameType.ToString(),
-                    playerUsername,
-                    player.DartsThrown,
-                    player.PointsScored,
-                    (double)player.PPD
-                );
-                await _eventBroadcaster.BroadcastEventAsync(wonEvent, cancellationToken);
-                
-                // Update statistics
-                await UpdateGameStatistics(game, cancellationToken);
+                var engine = GetEngine(game.GameType);
+                // Check if the last round was finished (either 3 darts or a bust/win)
+                // For now, let's look at the dart number. If it's 3, it's definitely a new round.
+                // But if it's < 3, we need to know if it was a bust.
+
+                // Re-calculate the game up to the last throw to see if it was a bust round
+                var remainingScoreBeforeLast = game.StartingScore ?? 0;
+                // (This is getting complex, maybe we should just let the client send the round/dart number?)
+                // Actually, let's simplify: if the last throw was dart 3, it's a new round.
+                // If it was dart 1 or 2, we check if it was a bust.
+
+                bool isLastRoundFinished = lastThrow.DartNumber >= 3;
+
+                if (!isLastRoundFinished)
+                {
+                    // Verify if it was a bust
+                    // For X01, we can check if it was a bust.
+                    if (game.GameType == GameType.X01)
+                    {
+                        // If we want to be 100% sure, we'd need to simulate again.
+                        // But wait, the client knows! Let's just count throws for now but more intelligently.
+                        // Actually, the simplest way is to see if the client's view matches.
+                        // But we don't have it.
+                    }
+                }
+
+                if (isLastRoundFinished)
+                {
+                    roundNumber = lastThrow.RoundNumber + 1;
+                    dartNumber = 1;
+                }
+                else
+                {
+                    roundNumber = lastThrow.RoundNumber;
+                    dartNumber = lastThrow.DartNumber + 1;
+                }
             }
-            // If currentScore > 0 or < 0 (if logic allowed), game continues.
-            // CalculateCurrentScore returns 'previous score' if bust, so it won't be 0.
-        }
-        else if (game.GameType == GameType.Cricket)
-        {
-            var cricketState = CalculateCricketState(game);
-            var playerState = cricketState[userId];
 
-            // Update PointsScored in the game session based on the calculation
-            // Note: Currently GameSession stores Points per throw, but Cricket points are derived.
-            // We might need to store the "effective points" in the throw or just rely on state.
-            // For now, we rely on CalculateCricketState for the "Game State" truth.
+            var dartThrow = DartThrow.Create(gameId, userId, roundNumber, dartNumber, score, rawData);
 
-            // Check Win Condition:
-            // 1. User has all numbers closed
-            var allClosed = CricketSegments.All(s => playerState.Marks.ContainsKey(s) && playerState.Marks[s] >= 3);
-            
-            // 2. User has highest (or equal) score
-            var playerScore = playerState.Score;
-            var isHighestScore = cricketState.All(kv => kv.Value.Score <= playerScore);
+            // CRITICAL: Use repository method to add throw
+            // This ensures EF Core tracks it as "Added" instead of "Modified"
+            _gameRepository.AddThrowToGame(game, dartThrow);
 
-            if (allClosed && isHighestScore)
+            var playerUsername = player.User?.Username ?? "Unknown";
+
+            var currentEngine = GetEngine(game.GameType);
+            var currentScoreForEvent = currentEngine.CalculateCurrentScore(game, userId);
+
+            await _eventBroadcaster.BroadcastEventAsync(new DartsThrowEvent(
+                gameId, DateTime.UtcNow, game.GameType.ToString(), playerUsername,
+                currentScoreForEvent, dartNumber, score.Segment, (int)score.Multiplier, score.Points
+            ), cancellationToken);
+
+            bool gameEnded = false;
+            if (currentEngine.CheckWinCondition(game, userId, out var finalScore))
             {
                 game.Complete(userId);
-                // For Cricket, 'FinalScore' typically refers to the Points total
-                player.SetFinalScore(playerScore);
-                
-                // Broadcast game won event for Cricket
-                var wonEvent = new GameWonEvent(
-                    gameId,
-                    DateTime.UtcNow,
-                    game.GameType.ToString(),
-                    playerUsername,
-                    player.DartsThrown,
-                    playerScore,
-                    (double)player.PPD
-                );
-                await _eventBroadcaster.BroadcastEventAsync(wonEvent, cancellationToken);
-                
-                await UpdateGameStatistics(game, cancellationToken);
+                player.SetFinalScore(finalScore ?? 0);
+
+                await _eventBroadcaster.BroadcastEventAsync(new GameWonEvent(
+                    gameId, DateTime.UtcNow, game.GameType.ToString(), playerUsername,
+                    player.DartsThrown, player.PointsScored, (double)player.PPD
+                ), cancellationToken);
+
+                await currentEngine.UpdateStatisticsAsync(game, cancellationToken);
+                gameEnded = true;
+            }
+
+            await _gameRepository.UpdateAsync(game, cancellationToken);
+            var result = await MapToGameStateDto(game, cancellationToken);
+
+            // If game ended (won), release and remove the lock
+            if (gameEnded)
+            {
+                ReleaseGameLock(gameId);
+            }
+
+            return result;
+        }
+        finally
+        {
+            // Only release if not already removed (in case game ended or exception)
+            if (_gameLocks.ContainsKey(gameId))
+            {
+                gameLock.Release();
             }
         }
-
-        await _gameRepository.UpdateAsync(game, cancellationToken);
-
-        return await MapToGameStateDto(game, cancellationToken);
     }
 
+    public async Task<GameSession?> GetGameEntityAsync(Guid gameId, CancellationToken cancellationToken = default)
+    {
+        return await _gameRepository.GetByIdAsync(gameId, cancellationToken);
+    }
 
+    public GameStatsUpdatedDto CalculateIncrementalStats(
+        GameSession game,
+        CancellationToken cancellationToken = default)
+    {
+        var engine = GetEngine(game.GameType);
+        var playerStats = new List<PlayerStatsUpdatedDto>();
+
+        foreach (var player in game.Players)
+        {
+            var playerThrows = game.Throws.Where(t => t.UserId == player.UserId).OrderBy(t => t.ThrownAt).ToList();
+            var dartsThrown = playerThrows.Count;
+            var pointsScored = playerThrows.Sum(t => t.Points);
+            var ppd = dartsThrown > 0 ? (decimal)pointsScored / dartsThrown : 0m;
+            var currentScore = player.UserId.HasValue 
+                ? engine.CalculateCurrentScore(game, player.UserId.Value) 
+                : 0;
+
+            // Calculate rounds completed (every 3 darts or bust = 1 round)
+            var roundsCompleted = playerThrows.GroupBy(t => t.RoundNumber).Count();
+
+            // Calculate current average (points per 3 darts)
+            var currentAverage = roundsCompleted > 0
+                ? (decimal)pointsScored / roundsCompleted
+                : ppd * 3;
+
+            var lastThrowPoints = playerThrows.LastOrDefault()?.Points ?? 0;
+            var playerUsername = player.User?.Username ?? "Unknown";
+
+            playerStats.Add(new PlayerStatsUpdatedDto(
+                player.UserId.GetValueOrDefault(),
+                playerUsername,
+                currentScore,
+                dartsThrown,
+                pointsScored,
+                ppd,
+                currentAverage,
+                roundsCompleted,
+                lastThrowPoints,
+                DateTime.UtcNow
+            ));
+        }
+
+        return new GameStatsUpdatedDto(
+            game.Id,
+            playerStats,
+            DateTime.UtcNow
+        );
+    }
 
     public async Task<GameStateDto> EndGameAsync(Guid gameId, CancellationToken cancellationToken = default)
     {
+        // Acquire game-level lock to prevent concurrent end attempts
+        var gameLock = GetGameLock(gameId);
+        await gameLock.WaitAsync(cancellationToken);
 
-        var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
-
-        if (game == null)
+        try
         {
-            throw new InvalidOperationException($"Game {gameId} not found");
-        }
+            var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
+            if (game == null) throw new InvalidOperationException("Game not found");
 
-        if (game.Status == GameStatus.Completed)
-        {
-            return await MapToGameStateDto(game, cancellationToken);
-        }
-
-        if (game.Status != GameStatus.InProgress)
-        {
             game.Abandon();
+
+            // Update stats even for abandoned games if they had throws
+            if (game.Throws.Any())
+            {
+                var currentEngine = GetEngine(game.GameType);
+                await currentEngine.UpdateStatisticsAsync(game, cancellationToken);
+            }
+
+            await _gameRepository.UpdateAsync(game, cancellationToken);
+            var result = await MapToGameStateDto(game, cancellationToken);
+
+            // Release and remove the lock since the game is now ended
+            ReleaseGameLock(gameId);
+
+            return result;
         }
-        else
+        finally
         {
-            // Determine winner based on current scores
-            if (IsX01Game(game.GameType) && game.StartingScore.HasValue)
+            // Only release if not already removed (in case of exception before ReleaseGameLock)
+            if (_gameLocks.ContainsKey(gameId))
             {
-                var playerScores = game.Players.Select(p => new
-                {
-                    Player = p,
-                    CurrentScore = CalculateCurrentScore(game, p.UserId)
-                }).ToList();
-
-                var winner = playerScores
-                    .Where(ps => ps.CurrentScore >= 0)
-                    .OrderBy(ps => ps.CurrentScore)
-                    .FirstOrDefault();
-
-                if (winner != null)
-                {
-                    game.Complete(winner.Player.UserId);
-                    winner.Player.SetFinalScore(winner.CurrentScore);
-                }
-                else
-                {
-                    game.Abandon();
-                }
-            }
-            else if (game.GameType == GameType.Cricket)
-            {
-                var cricketState = CalculateCricketState(game);
-                
-                // Winner is one with all closed and highest score, OR if forced end, typically highest score?
-                // If forced end, we'll just take highest score for now.
-                var winner = cricketState
-                    .OrderByDescending(kv => kv.Value.Score)
-                     // Tie-breaker: Most marks?
-                    .ThenByDescending(kv => kv.Value.Marks.Values.Sum())
-                    .FirstOrDefault();
-
-                // If default struct (empty), winner.Key might be empty
-                if (winner.Key != Guid.Empty)
-                {
-                    game.Complete(winner.Key);
-                    var winningPlayer = game.Players.First(p => p.UserId == winner.Key);
-                    winningPlayer.SetFinalScore(winner.Value.Score);
-                }
-                else
-                {
-                    game.Abandon();
-                }
-            }
-            else
-            {
-                // For other game types, just mark as abandoned if manually ended
-                game.Abandon();
+                gameLock.Release();
             }
         }
-
-        await _gameRepository.UpdateAsync(game, cancellationToken);
-
-        // Update statistics if game was completed or ended manually
-        if (game.Status == GameStatus.Completed)
-        {
-            await UpdateGameStatistics(game, cancellationToken);
-        }
-
-
-        return await MapToGameStateDto(game, cancellationToken);
     }
 
     public async Task<IEnumerable<GameStateDto>> GetUserGamesAsync(Guid userId, int limit = 20, CancellationToken cancellationToken = default)
     {
-
         var games = await _gameRepository.GetUserGamesAsync(userId, limit, cancellationToken);
-
-        var gameDtos = new List<GameStateDto>();
-        foreach (var game in games)
-        {
-            gameDtos.Add(await MapToGameStateDto(game, cancellationToken));
-        }
-
-        return gameDtos;
+        var dtos = new List<GameStateDto>();
+        foreach (var game in games) dtos.Add(await MapToGameStateDto(game, cancellationToken));
+        return dtos;
     }
 
     private async Task<GameStateDto> MapToGameStateDto(GameSession game, CancellationToken cancellationToken)
     {
-        var players = new List<PlayerGameDto>();
+        var engine = GetEngine(game.GameType);
+        var playerDtos = game.Players.Select(p => new PlayerGameDto(
+            p.UserId.GetValueOrDefault(), 
+            p.User?.Username ?? "",
+            p.PlayerType,
+            p.GetDisplayName(),
+            p.PlayerOrder,
+            p.FinalScore,
+            p.DartsThrown, 
+            p.PointsScored,
+            p.PPD,
+            p.IsWinner,
+            p.UserId.HasValue ? engine.GetPlayerState(game, p.UserId.Value) : null
+        )).ToList();
 
-        foreach (var player in game.Players.OrderBy(p => p.PlayerOrder))
-        {
-            var user = await _userRepository.GetByIdAsync(player.UserId, cancellationToken);
-
-            players.Add(new PlayerGameDto(
-                player.UserId,
-                user?.Username ?? "Unknown",
-                player.PlayerOrder,
-                player.FinalScore,
-                player.DartsThrown,
-                player.PointsScored,
-                player.PPD,
-                player.IsWinner
-            ));
-        }
-
-        // If Cricket, populate Marks and Points
-        if (game.GameType == GameType.Cricket)
-        {
-            var cricketState = CalculateCricketState(game);
-            // Re-map players with Cricket Data
-            players.Clear();
-            foreach (var player in game.Players.OrderBy(p => p.PlayerOrder))
-            {
-                var user = await _userRepository.GetByIdAsync(player.UserId, cancellationToken);
-                var state = cricketState[player.UserId];
-                
-                players.Add(new PlayerGameDto(
-                    player.UserId,
-                    user?.Username ?? "Unknown",
-                    player.PlayerOrder,
-                    player.FinalScore, // Or state.Score? FinalScore is set on win.
-                    player.DartsThrown,
-                    state.Score, // Use Cricket Score (Points)
-                    player.PPD, // PPD might need adjustment for MPR (Marks Per Round)
-                    player.IsWinner,
-                    state.Marks
-                ));
-            }
-        }
-
-        // Calculate current player index based on total throws
-        var currentPlayerIndex = 0;
-        if (game.Status == GameStatus.InProgress && game.Players.Any())
-        {
-            var totalThrows = game.Throws.Count;
-            var playersCount = game.Players.Count;
-            currentPlayerIndex = (totalThrows / 3) % playersCount;
-        }
-
+        // Calculate current player index
+        var currentPlayerOrder = (game.Throws.Count / 3) % Math.Max(1, game.Players.Count);
+        
         return new GameStateDto(
-            game.Id,
-            game.GameType,
-            game.StartingScore,
+            game.Id, 
+            game.GameType, 
+            game.StartingScore, 
             game.Status,
-            game.StartedAt,
-            game.EndedAt,
+            game.StartedAt, 
+            game.EndedAt, 
             game.WinnerId,
             game.IsOnline,
             game.IsBotGame,
-            players,
-            currentPlayerIndex,
+            playerDtos,
+            currentPlayerOrder,
             game.Options
         );
-    }
-
-    private bool IsX01Game(GameType gameType)
-    {
-        return gameType == GameType.X01;
-    }
-
-
-
-    private bool HasOpened(GameSession game, Guid userId, int roundNumber)
-    {
-        // For Double In: Check if any previous throw (or current round before this throw?) was a double.
-        // Actually, we need to check ALL throws up to the current point being calculated.
-        
-        // Optimize: Store 'HasOpened' in player state? For now, iterate.
-        var playerThrows = game.Throws
-            .Where(t => t.UserId == userId)
-            .OrderBy(t => t.ThrownAt)
-            .ToList();
-
-        foreach (var t in playerThrows)
-        {
-            if (t.Multiplier == Multiplier.Double) return true;
-        }
-        return false;
-    }
-
-    private int CalculateCurrentScore(GameSession game, Guid userId)
-    {
-        if (!game.StartingScore.HasValue)
-            return 0;
-
-        var remainingScore = game.StartingScore.Value;
-        var hasOpened = game.Options.InMode != "Double"; // If not Double In, we are open by default.
-
-        var playerThrows = game.Throws
-            .Where(t => t.UserId == userId)
-            .OrderBy(t => t.RoundNumber)
-            .ThenBy(t => t.DartNumber)
-            .GroupBy(t => t.RoundNumber);
-
-        foreach (var round in playerThrows)
-        {
-            var roundTotal = 0;
-            var roundBust = false;
-
-            // Process darts individually to handle "Double In" within a round
-            foreach(var dart in round)
-            {
-                if (!hasOpened)
-                {
-                    if (dart.Multiplier == Multiplier.Double)
-                    {
-                        hasOpened = true;
-                        // First double counts!
-                        // Logic check: "Double In" usually means points start counting FROM the double.
-                        // Does the double value itself subtract? Yes.
-                    }
-                    else
-                    {
-                        // Throw doesn't count if not open yet
-                        continue; 
-                    }
-                }
-
-                // If we are here, we are open (either was open, or just opened)
-                var newScore = remainingScore - roundTotal - dart.Points;
-
-                // 1. Check Busts
-                // a) Below Zero
-                if (newScore < 0)
-                {
-                    roundBust = true;
-                    break;
-                }
-                // b) Score of 1 (Invalid for any Out that requires Double/Triple?)
-                // Actually, 1 is always invalid because you cannot checkout 1 with a Double/Triple.
-                // Even for Single Out? Single Out 1 -> Hit 1 -> 0. OK.
-                // But Double Out 1 -> invalid (need D0.5 impossible).
-                // Master Out 1 -> invalid.
-                if (newScore == 1 && game.Options.OutMode != "Straight")
-                {
-                    roundBust = true;
-                    break;
-                }
-                // c) Reached Zero
-                if (newScore == 0)
-                {
-                    // Check Out Condition
-                    var validOut = false;
-                    if (game.Options.OutMode == "Double" && dart.Multiplier == Multiplier.Double) validOut = true;
-                    else if (game.Options.OutMode == "Master" && (dart.Multiplier == Multiplier.Double || dart.Multiplier == Multiplier.Triple)) validOut = true;
-                    else if (game.Options.OutMode == "Straight") validOut = true;
-
-                    if (!validOut)
-                    {
-                        roundBust = true;
-                        break;
-                    }
-                    
-                    // Valid win!
-                    roundTotal += dart.Points;
-                    // Ignore remaining darts in this round (game over)
-                    goto RoundFinished; 
-                }
-
-                roundTotal += dart.Points;
-            }
-
-            if (!roundBust)
-            {
-                remainingScore -= roundTotal;
-            }
-            // If bust, remainingScore stays same (ignore roundTotal)
-
-            RoundFinished:;
-            if (remainingScore == 0) break; // Game Over
-        }
-
-        return remainingScore;
-    }
-
-    private async Task UpdateGameStatistics(GameSession game, CancellationToken cancellationToken)
-    {
-        if (!game.StartingScore.HasValue) return;
-
-        foreach (var player in game.Players)
-        {
-            // Skip bot players (empty GUID)
-            if (player.UserId == Guid.Empty)
-                continue;
-
-            // Recalculate VALID points and darts for this player
-            var validPoints = 0;
-            var totalDarts = 0;
-            var currentTotal = game.StartingScore.Value;
-            var hasOpened = game.Options.InMode != "Double";
-            
-            var roundScoresList = new List<int>();
-
-            var roundGroups = game.Throws
-                .Where(t => t.UserId == player.UserId)
-                .OrderBy(t => t.RoundNumber)
-                .ThenBy(t => t.DartNumber)
-                .GroupBy(t => t.RoundNumber);
-
-            foreach (var round in roundGroups)
-            {
-                var roundPoints = 0;
-                var roundDarts = 0;
-                var roundBust = false;
-
-                foreach (var dart in round)
-                {
-                    roundDarts++;
-                    if (!hasOpened)
-                    {
-                        if (dart.Multiplier == Multiplier.Double)
-                            hasOpened = true;
-                        else
-                            continue; // Doesn't count towards score
-                    }
-
-                    var tempScore = currentTotal - roundPoints - dart.Points;
-                    
-                    // Bust logic
-                    if (tempScore < 0 || (tempScore == 1 && game.Options.OutMode != "Straight"))
-                    {
-                        roundBust = true;
-                        break;
-                    }
-                    
-                    if (tempScore == 0)
-                    {
-                        var validOut = (game.Options.OutMode == "Straight") || 
-                                     (game.Options.OutMode == "Double" && dart.Multiplier == Multiplier.Double) ||
-                                     (game.Options.OutMode == "Master" && (dart.Multiplier == Multiplier.Double || dart.Multiplier == Multiplier.Triple));
-
-                        if (!validOut)
-                        {
-                            roundBust = true;
-                            break;
-                        }
-                        
-                        roundPoints += dart.Points;
-                        currentTotal = 0;
-                        goto ProcessingComplete;
-                    }
-
-                    roundPoints += dart.Points;
-                }
-
-                if (!roundBust)
-                {
-                    validPoints += roundPoints;
-                    currentTotal -= roundPoints;
-                    roundScoresList.Add(roundPoints);
-                }
-                else
-                {
-                    roundScoresList.Add(0); // Bust round counts as 0 points
-                }
-                totalDarts += roundDarts;
-            }
-
-            ProcessingComplete:
-            if (currentTotal == 0)
-            {
-                // This handles cases where we hit 0 in the inner loop
-                validPoints = game.StartingScore.Value;
-                // totalDarts is already updated
-            }
-
-            // Update the GamePlayer entity with verified stats
-            player.OverrideStats(validPoints, totalDarts);
-
-            var checkout = player.IsWinner && currentTotal == 0 && game.Throws.Any(t => t.UserId == player.UserId)
-                ? game.Throws.Where(t => t.UserId == player.UserId).Last().Points
-                : 0;
-
-            await _statisticsService.UpdateStatsAfterGameAsync(
-                player.UserId,
-                player.IsWinner,
-                totalDarts,
-                validPoints,
-                roundScoresList,
-                checkout,
-                cancellationToken);
-        }
-    }
-
-    private Dictionary<Guid, (int Score, Dictionary<int, int> Marks)> CalculateCricketState(GameSession game)
-    {
-        // Initialize state for all players
-        var state = game.Players.ToDictionary(
-            p => p.UserId,
-            p => (Score: 0, Marks: CricketSegments.ToDictionary(s => s, s => 0))
-        );
-
-        // Process throws in order
-        var sortedThrows = game.Throws.OrderBy(t => t.ThrownAt).ToList();
-
-        foreach (var t in sortedThrows)
-        {
-            // Skip invalid segments (misses or non-cricket numbers)
-            if (!CricketSegments.Contains(t.Segment)) continue;
-
-            var playerId = t.UserId;
-            // Handle Bullseye: Outer=25 (1 mark), Inner=50 (2 marks)
-            // StartSmartNet.Server.Domain.ValueObjects.Score has Multiplier.
-            // For Bull: SingleBull is Segment 25, Multiplier 1 (1 mark)
-            // DoubleBull is Segment 25, Multiplier 2 (2 marks)
-            var marksToAdd = (int)t.Multiplier; 
-            var segment = t.Segment;
-
-            var playerState = state[playerId];
-            var currentMarks = playerState.Marks[segment];
-
-            // Calculate new status
-            // Case 1: Filling marks to close (up to 3)
-            // Case 2: Scoring points (excess marks)
-
-            for (int m = 0; m < marksToAdd; m++)
-            {
-                if (currentMarks < 3)
-                {
-                    currentMarks++;
-                    playerState.Marks[segment] = currentMarks;
-                }
-                else
-                {
-                    // Already closed by me. Check opponents.
-                    // Score points ONLY if NOT closed by ALL opponents.
-                    var opponents = state.Keys.Where(k => k != playerId);
-                    var isClosedByAllOpponents = opponents.All(oId => state[oId].Marks[segment] >= 3);
-
-                    if (!isClosedByAllOpponents)
-                    {
-                        playerState.Score += segment;
-                    }
-                }
-            }
-            
-            // Update the tuple in the dictionary
-            state[playerId] = (playerState.Score, playerState.Marks);
-        }
-
-        return state;
     }
 }

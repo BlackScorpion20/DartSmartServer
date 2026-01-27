@@ -17,12 +17,39 @@ public class GameRepository : IGameRepository
 
     public async Task<GameSession?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        // CRITICAL: Clear tracker to prevent stale entity issues
+        // This is safe because SemaphoreSlim in GameService ensures sequential processing per game
+        _context.ChangeTracker.Clear();
+
         return await _context.GameSessions
             .Include(g => g.Players)
                 .ThenInclude(p => p.User)
             .Include(g => g.Throws)
             .Include(g => g.Winner)
             .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets a game by ID with pessimistic row lock (SELECT FOR UPDATE)
+    /// This prevents concurrent modifications to the same game
+    /// </summary>
+    public async Task<GameSession?> GetByIdWithLockAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        // Clear ALL tracked entities to prevent state conflicts
+        // This is critical for pessimistic locking to work correctly
+        _context.ChangeTracker.Clear();
+
+        // Use raw SQL with FOR UPDATE to acquire row lock
+        // This blocks other transactions from modifying this row until commit
+        var game = await _context.GameSessions
+            .FromSqlRaw("SELECT * FROM game_sessions WHERE id = {0} FOR UPDATE", id)
+            .Include(g => g.Players)
+                .ThenInclude(p => p.User)
+            .Include(g => g.Throws)
+            .Include(g => g.Winner)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return game;
     }
 
     public async Task<IEnumerable<GameSession>> GetActiveGamesAsync(CancellationToken cancellationToken = default)
@@ -51,15 +78,35 @@ public class GameRepository : IGameRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Adds a new DartThrow to a game and explicitly marks it for insertion
+    /// This prevents EF Core from treating it as an existing entity
+    /// </summary>
+    public void AddThrowToGame(GameSession game, DartThrow dartThrow)
+    {
+        // CRITICAL: Explicitly set entity state to Added FIRST, before any collection manipulation
+        // This ensures EF Core will generate INSERT, not UPDATE
+        // When a GameSession is loaded with Include(g => g.Throws), EF Core tracks the Throws collection.
+        // Adding to that collection can cause EF Core to treat entities incorrectly if they have pre-set GUIDs.
+        _context.Entry(dartThrow).State = EntityState.Added;
+        
+        // Now add to domain collection (for domain logic / stats updates)
+        game.AddThrow(dartThrow);
+    }
+
     public async Task UpdateAsync(GameSession game, CancellationToken cancellationToken = default)
     {
-        // Only call Update if the entity is not already being tracked
-        var entry = _context.Entry(game);
-        if (entry.State == EntityState.Detached)
+        try
         {
-            _context.GameSessions.Update(game);
+            // With ChangeTracker.Clear() + explicit AddThrowToGame(),
+            // EF Core now correctly tracks entity states
+            await _context.SaveChangesAsync(cancellationToken);
         }
-        await _context.SaveChangesAsync(cancellationToken);
+        catch (DbUpdateConcurrencyException)
+        {
+            _context.ChangeTracker.Clear();
+            throw;
+        }
     }
 
     public async Task<IEnumerable<GameSession>> GetGamesByTypeAsync(GameType gameType, CancellationToken cancellationToken = default)

@@ -39,7 +39,11 @@ public sealed record Score
     public override string ToString()
     {
         if (Segment == 0) return "MISS";
-        if (Segment == 25) return "BULL";
+        if (Segment == 25)
+        {
+            // SingleBull (25x1) -> "25", DoubleBull (25x2) -> "BULL"
+            return Multiplier == Multiplier.Double ? "BULL" : "25";
+        }
 
         return Multiplier switch
         {

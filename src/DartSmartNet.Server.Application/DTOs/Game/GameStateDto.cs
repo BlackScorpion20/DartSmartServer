@@ -23,11 +23,14 @@ public sealed record GameStateDto(
 public sealed record PlayerGameDto(
     Guid UserId,
     string Username,
+    PlayerType PlayerType,
+    string DisplayName,
     int PlayerOrder,
     int? FinalScore,
     int DartsThrown,
     int PointsScored,
     decimal PPD,
     bool IsWinner,
-    Dictionary<int, int>? CricketMarks = null
+    Dictionary<int, int>? PlayerState = null
 );
+

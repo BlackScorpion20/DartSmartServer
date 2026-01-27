@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using DartSmartNet.Server.API.Hubs;
 using DartSmartNet.Server.Application.Interfaces;
 using DartSmartNet.Server.Application.Services;
+using DartSmartNet.Server.Application.Engines;
 using DartSmartNet.Server.Infrastructure.AI;
 using DartSmartNet.Server.Infrastructure.Extensions;
 using DartSmartNet.Server.Infrastructure.Authentication;
@@ -111,8 +112,15 @@ builder.Services.AddScoped<IGameProfileService, GameProfileService>();
 builder.Services.AddScoped<ITournamentService, TournamentService>();
 builder.Services.AddSingleton<IMatchmakingService, MatchmakingService>();
 builder.Services.AddScoped<IBotService, BotEngine>();
+builder.Services.AddScoped<IBotTurnService, BotTurnService>();
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+// Game Engines
+builder.Services.AddScoped<IGameEngine, X01Engine>();
+builder.Services.AddScoped<IGameEngine, CricketEngine>();
+builder.Services.AddScoped<IGameEngine, AroundTheClockEngine>();
+builder.Services.AddScoped<IGameEngine, JdcChallengeEngine>();
 
 // Event Broadcasting System
 // Event Broadcasting System

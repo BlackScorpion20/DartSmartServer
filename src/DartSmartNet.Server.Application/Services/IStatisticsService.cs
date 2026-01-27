@@ -17,5 +17,22 @@ public interface IStatisticsService
         int pointsScored,
         IEnumerable<int> roundScores,
         int checkout,
+        int cricketMarks = 0,
+        CancellationToken cancellationToken = default);
+
+    Task UpdateStatsAfterGameAsync(
+        Guid userId,
+        bool won,
+        int dartsThrown,
+        int pointsScored,
+        IEnumerable<int> roundScores,
+        int checkout,
+        int doubleAttempts,
+        int doubleHits,
+        decimal sessionAverage,
+        decimal first9Average,
+        int legsPlayed,
+        int legsWon,
+        int cricketMarks = 0,
         CancellationToken cancellationToken = default);
 }

@@ -12,6 +12,8 @@ public class PlayerStats : Entity
     public int TotalDartsThrown { get; private set; }
     public int TotalPointsScored { get; private set; }
     public decimal AveragePPD { get; private set; }
+    public decimal AverageMPR { get; private set; }
+    public int TotalCricketMarks { get; private set; }
     
     // High Scores
     public int HighestCheckout { get; private set; }
@@ -65,6 +67,8 @@ public class PlayerStats : Entity
             TotalDartsThrown = 0,
             TotalPointsScored = 0,
             AveragePPD = 0,
+            AverageMPR = 0,
+            TotalCricketMarks = 0,
             HighestCheckout = 0,
             HighestScore = 0,
             Total180s = 0,
@@ -100,7 +104,8 @@ public class PlayerStats : Entity
         decimal sessionAverage = 0,
         decimal first9Average = 0,
         int legsPlayed = 1,
-        int legsWon = 0)
+        int legsWon = 0,
+        int cricketMarks = 0)
     {
         GamesPlayed++;
         LastGameAt = DateTime.UtcNow;
@@ -131,6 +136,13 @@ public class PlayerStats : Entity
         // Recalculate average PPD
         AveragePPD = TotalDartsThrown > 0
             ? Math.Round((decimal)TotalPointsScored / TotalDartsThrown, 2)
+            : 0;
+
+        // Calculate Average MPR (Marks per regular visit/round, simplified as marks / (darts/3))
+        TotalCricketMarks += cricketMarks;
+        var totalRounds = (decimal)TotalDartsThrown / 3;
+        AverageMPR = totalRounds > 0
+            ? Math.Round(TotalCricketMarks / totalRounds, 2)
             : 0;
 
         // Update high scores count

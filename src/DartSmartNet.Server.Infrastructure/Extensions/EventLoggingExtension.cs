@@ -6,6 +6,7 @@ using DartSmartNet.Server.Domain.Entities;
 using DartSmartNet.Server.Domain.Events;
 using DartSmartNet.Server.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 namespace DartSmartNet.Server.Infrastructure.Extensions;
@@ -15,7 +16,7 @@ namespace DartSmartNet.Server.Infrastructure.Extensions;
 /// </summary>
 public class EventLoggingExtension : IGameExtension
 {
-    private readonly ApplicationDbContext _dbContext;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<EventLoggingExtension> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
@@ -23,10 +24,10 @@ public class EventLoggingExtension : IGameExtension
     public string Name => "Event Logger";
 
     public EventLoggingExtension(
-        ApplicationDbContext dbContext,
+        IServiceScopeFactory scopeFactory,
         ILogger<EventLoggingExtension> logger)
     {
-        _dbContext = dbContext;
+        _scopeFactory = scopeFactory;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions
         {
@@ -39,6 +40,9 @@ public class EventLoggingExtension : IGameExtension
     {
         try
         {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
             var eventData = JsonSerializer.Serialize(gameEvent, _jsonOptions);
             var playerUsername = ExtractPlayerUsername(gameEvent);
 
@@ -49,8 +53,8 @@ public class EventLoggingExtension : IGameExtension
                 playerUsername
             );
 
-            _dbContext.Set<GameEventLog>().Add(eventLog);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.Set<GameEventLog>().Add(eventLog);
+            await dbContext.SaveChangesAsync(cancellationToken);
 
             _logger.LogDebug("Logged event {EventType} for game {GameId}",
                 gameEvent.EventType, gameEvent.GameId);

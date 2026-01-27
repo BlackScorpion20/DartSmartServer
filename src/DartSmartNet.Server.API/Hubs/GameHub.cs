@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DartSmartNet.Server.Application.DTOs.Game;
 using DartSmartNet.Server.Application.Services;
+using DartSmartNet.Server.Domain.Enums;
 using DartSmartNet.Server.Domain.ValueObjects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -15,11 +16,13 @@ namespace DartSmartNet.Server.API.Hubs;
 public class GameHub : Hub
 {
     private readonly IGameService _gameService;
+    private readonly IBotTurnService _botTurnService;
     private readonly ILogger<GameHub> _logger;
 
-    public GameHub(IGameService gameService, ILogger<GameHub> logger)
+    public GameHub(IGameService gameService, IBotTurnService botTurnService, ILogger<GameHub> logger)
     {
         _gameService = gameService;
+        _botTurnService = botTurnService;
         _logger = logger;
     }
 
@@ -112,6 +115,17 @@ public class GameHub : Hub
             // Register throw via game service
             var gameState = await _gameService.RegisterThrowAsync(gameId, userId, score);
 
+            // Calculate and broadcast incremental stats for all players
+            var game = await _gameService.GetGameEntityAsync(gameId);
+            if (game != null)
+            {
+                var incrementalStats = _gameService.CalculateIncrementalStats(game);
+                await Clients.Group(GetGameGroupName(gameId))
+                    .SendAsync("PlayerStatsUpdated", incrementalStats);
+
+                _logger.LogInformation("Broadcasted incremental stats for game {GameId}", gameId);
+            }
+
             // Broadcast updated game state to all players in the game
             await Clients.Group(GetGameGroupName(gameId))
                 .SendAsync("GameStateUpdated", gameState);
@@ -125,11 +139,14 @@ public class GameHub : Hub
                 points,
                 DateTime.UtcNow
             );
-            
+
             await Clients.OthersInGroup(GetGameGroupName(gameId))
                 .SendAsync("OpponentThrow", throwDetails);
 
             _logger.LogInformation("Throw registered successfully for game {GameId}", gameId);
+
+            // After human throw, check if bot should play next
+            await ExecuteBotTurnsIfNeededAsync(gameId, cancellationToken: default);
         }
         catch (Exception ex)
         {
@@ -138,6 +155,63 @@ public class GameHub : Hub
             // Send error to the caller only
             await Clients.Caller.SendAsync("ThrowError", ex.Message);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Executes bot turns automatically if the current player is a bot
+    /// </summary>
+    private async Task ExecuteBotTurnsIfNeededAsync(Guid gameId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Keep executing bot turns while the current player is a bot
+            while (await _botTurnService.ShouldBotPlayNextAsync(gameId, cancellationToken))
+            {
+                _logger.LogInformation("Executing bot turn for game {GameId}", gameId);
+
+                await foreach (var (state, segment, multiplier, points) in 
+                    _botTurnService.ExecuteBotTurnAsync(gameId, cancellationToken))
+                {
+                    // Broadcast the bot's throw to all players
+                    var botThrowDetails = new OpponentThrowDto(
+                        state.Players[state.CurrentPlayerIndex].UserId,
+                        state.Players[state.CurrentPlayerIndex].DisplayName ?? "Bot",
+                        segment,
+                        multiplier,
+                        points,
+                        DateTime.UtcNow
+                    );
+
+                    await Clients.Group(GetGameGroupName(gameId))
+                        .SendAsync("BotThrow", botThrowDetails);
+
+                    // Broadcast updated game state
+                    await Clients.Group(GetGameGroupName(gameId))
+                        .SendAsync("GameStateUpdated", state);
+
+                    // Calculate and broadcast incremental stats
+                    var game = await _gameService.GetGameEntityAsync(gameId, cancellationToken);
+                    if (game != null)
+                    {
+                        var incrementalStats = _gameService.CalculateIncrementalStats(game);
+                        await Clients.Group(GetGameGroupName(gameId))
+                            .SendAsync("PlayerStatsUpdated", incrementalStats);
+                    }
+
+                    // Check if game ended
+                    if (state.Status != Domain.Enums.GameStatus.InProgress)
+                    {
+                        _logger.LogInformation("Game {GameId} ended during bot turn", gameId);
+                        return;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error executing bot turn for game {GameId}", gameId);
+            // Don't throw - bot turn failure shouldn't affect the human player's throw
         }
     }
 

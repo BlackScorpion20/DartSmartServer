@@ -6,6 +6,7 @@ public enum GameType
     Cricket,
     AroundTheClock,
     Shanghai,
+    JdcChallenge,
 
     // Training modes
     TrainingBobsDoubles,

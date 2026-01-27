@@ -19,7 +19,17 @@ public class GamePlayerConfiguration : IEntityTypeConfiguration<GamePlayer>
 
         builder.Property(gp => gp.UserId)
             .HasColumnName("user_id")
+            .IsRequired(false);  // Optional for guest/bot players
+
+        builder.Property(gp => gp.PlayerType)
+            .HasColumnName("player_type")
+            .HasDefaultValue(Domain.Enums.PlayerType.Human)
             .IsRequired();
+
+        builder.Property(gp => gp.DisplayName)
+            .HasColumnName("display_name")
+            .HasMaxLength(50)
+            .IsRequired(false);
 
         builder.Property(gp => gp.PlayerOrder)
             .HasColumnName("player_order")
@@ -49,14 +59,17 @@ public class GamePlayerConfiguration : IEntityTypeConfiguration<GamePlayer>
             .HasColumnName("created_at")
             .IsRequired();
 
-        // Unique constraint
+        // Unique constraint - allow multiple guests/bots (null UserId) per game
         builder.HasIndex(gp => new { gp.GameId, gp.UserId })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("user_id IS NOT NULL");  // Only enforce uniqueness for real users
 
-        // Relationships
+        // Relationships - optional for guest/bot players
         builder.HasOne(gp => gp.User)
             .WithMany()
             .HasForeignKey(gp => gp.UserId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
+
